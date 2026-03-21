@@ -91,6 +91,22 @@ public class SelectWeekHandler
                 await _bot.SendMessage(chatId, $"Some days failed to submit. Try /select again.\n{ex.Message}", cancellationToken: ct);
             }
         }
+        else if (data == "select:submit_confirmed")
+        {
+            // Submit only days that have been explicitly confirmed by the user
+            var dbUserId = (Guid)state.FlowData["user_id"];
+            try
+            {
+                await _menuService.ConfirmWeekAsync(dbUserId);
+                _stateManager.Reset(userId);
+                await _bot.SendMessage(chatId, "Confirmed dishes submitted to Delicut!", cancellationToken: ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to submit confirmed days for user {UserId}", dbUserId);
+                await _bot.SendMessage(chatId, $"Some days failed to submit. Try again.\n{ex.Message}", cancellationToken: ct);
+            }
+        }
         else if (data == "select:change")
         {
             state.CurrentFlow = ConversationFlow.Select_PickingDay;

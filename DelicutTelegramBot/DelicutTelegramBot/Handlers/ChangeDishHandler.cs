@@ -103,7 +103,17 @@ public class ChangeDishHandler
             var dateStr = data["change:confirm:".Length..];
             var date = DateOnly.Parse(dateStr);
             await _menuService.ConfirmDayAsync(dbUserId, date);
-            await _bot.SendMessage(chatId, $"Day {date:MMM dd} confirmed!", cancellationToken: ct);
+
+            var keyboard = new InlineKeyboardMarkup(new[]
+            {
+                new[]
+                {
+                    InlineKeyboardButton.WithCallbackData("Submit All Confirmed", "select:submit_confirmed"),
+                    InlineKeyboardButton.WithCallbackData("Change More Days", "select:change")
+                }
+            });
+            await _bot.SendMessage(chatId, $"Day {date:MMM dd} confirmed! Submit to Delicut or keep changing?",
+                replyMarkup: keyboard, cancellationToken: ct);
         }
 
         await _bot.AnswerCallbackQuery(callback.Id, cancellationToken: ct);
