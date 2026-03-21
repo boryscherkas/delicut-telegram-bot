@@ -231,6 +231,8 @@ public class MenuSelectionService : IMenuSelectionService
                         DishId = pick.DishId,
                         DishName = dish.DishName,
                         VariantProtein = variant.ProteinOption,
+                        VariantSize = variant.Size,
+                        VariantProteinCategory = variant.ProteinCategory,
                         Kcal = variant.Kcal,
                         Protein = variant.Protein,
                         Carb = variant.Carb,
@@ -353,6 +355,8 @@ public class MenuSelectionService : IMenuSelectionService
         pending.DishId = newDishId;
         pending.DishName = newDish?.DishName ?? string.Empty;
         pending.VariantProtein = proteinOption;
+        pending.VariantSize = newVariant?.Size ?? pending.VariantSize;
+        pending.VariantProteinCategory = newVariant?.ProteinCategory ?? pending.VariantProteinCategory;
         pending.Kcal = newVariant?.Kcal ?? 0;
         pending.Protein = newVariant?.Protein ?? 0;
         pending.Carb = newVariant?.Carb ?? 0;
@@ -397,7 +401,9 @@ public class MenuSelectionService : IMenuSelectionService
                 DishId = p.DishId,
                 ProteinOption = p.VariantProtein,
                 MealCategory = p.MealCategory,
-                SlotIndex = p.SlotIndex
+                SlotIndex = p.SlotIndex,
+                Size = p.VariantSize,
+                ProteinCategory = p.VariantProteinCategory
             }).ToList();
 
             try

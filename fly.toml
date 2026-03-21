@@ -1,17 +1,20 @@
-app = "delicut-telegram-bot"
-primary_region = "sin"  # Singapore — closest to Dubai
+# fly.toml app configuration file generated for delicut-telegram-bot on 2026-03-22T01:19:35+04:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'delicut-telegram-bot'
+primary_region = 'sin'
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = 'Dockerfile'
 
 [env]
-  DOTNET_ENVIRONMENT = "Production"
-
-# No HTTP service needed — bot uses polling, not webhooks.
-# But we expose a health check port so Fly can monitor it.
-# The app doesn't serve HTTP; Fly will keep it running based on machine config.
+  DOTNET_ENVIRONMENT = 'Production'
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "256mb"
+  size = 'shared-cpu-1x'
+  memory = '256mb'
+  cpu_kind = 'shared'
   cpus = 1
+  memory_mb = 256

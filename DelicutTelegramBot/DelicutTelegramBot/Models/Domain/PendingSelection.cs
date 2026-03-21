@@ -12,6 +12,8 @@ public class PendingSelection
     public string DishId { get; set; } = string.Empty;
     public string DishName { get; set; } = string.Empty;
     public string VariantProtein { get; set; } = string.Empty;
+    public string VariantSize { get; set; } = string.Empty;
+    public string VariantProteinCategory { get; set; } = string.Empty;
     public double Kcal { get; set; }
     public double Protein { get; set; }
     public double Carb { get; set; }
