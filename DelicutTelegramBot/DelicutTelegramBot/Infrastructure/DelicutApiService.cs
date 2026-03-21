@@ -69,43 +69,25 @@ public class DelicutApiService : IDelicutApiService
 
     public async Task<LoginResponse> VerifyOtpAsync(string email, string otp)
     {
-        // Use HttpClientHandler to capture cookies
-        var handler = new HttpClientHandler { CookieContainer = new CookieContainer() };
-        using var client = new HttpClient(handler);
-        ApplyDefaultHeaders(client);
+        using var client = CreateClient();
 
         var response = await PostJsonRawAsync(client, $"{_baseUrl}/v3/customer/sign-up?",
             JsonSerializer.Serialize(new { email, otp }));
         await EnsureSuccess(response);
 
-        // Token comes from Set-Cookie header
-        var cookies = handler.CookieContainer.GetCookies(new Uri(_baseUrl));
-        var token = cookies["token"]?.Value;
+        // Token and customer details come from response body
+        var body = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(body);
 
-        // Also check Authorization header in response or response body
-        if (string.IsNullOrEmpty(token))
-        {
-            // Try to get from response body — some APIs return it there too
-            var body = await response.Content.ReadAsStringAsync();
-            _logger.LogDebug("VerifyOtp response body: {Body}", body);
+        var data = doc.RootElement.GetProperty("data");
 
-            // Try parsing as JSON to find a token field
-            using var doc = JsonDocument.Parse(body);
-            if (doc.RootElement.TryGetProperty("data", out var data))
-            {
-                if (data.TryGetProperty("token", out var tokenProp))
-                    token = tokenProp.GetString();
-                else if (data.TryGetProperty("accessToken", out var accessTokenProp))
-                    token = accessTokenProp.GetString();
-            }
-        }
+        // data.x_acess_token (note: "acess" is Delicut's typo, not ours)
+        var token = data.GetProperty("x_acess_token").GetString()
+            ?? throw new InvalidOperationException("No token in login response");
 
-        if (string.IsNullOrEmpty(token))
-            throw new InvalidOperationException("No token received from Delicut login");
-
-        // Extract customer_id from JWT payload or response
-        var customerId = ExtractCustomerIdFromResponse(
-            await response.Content.ReadAsStringAsync(), token);
+        // data.customerDetails._id
+        var customerId = data.GetProperty("customerDetails").GetProperty("_id").GetString()
+            ?? string.Empty;
 
         return new LoginResponse
         {
@@ -335,47 +317,4 @@ public class DelicutApiService : IDelicutApiService
         }
     }
 
-    private string ExtractCustomerIdFromResponse(string responseBody, string token)
-    {
-        try
-        {
-            // Try to get from response body
-            using var doc = JsonDocument.Parse(responseBody);
-            if (doc.RootElement.TryGetProperty("data", out var data))
-            {
-                if (data.TryGetProperty("customer_id", out var cid))
-                    return cid.GetString() ?? string.Empty;
-                if (data.TryGetProperty("_id", out var id))
-                    return id.GetString() ?? string.Empty;
-            }
-        }
-        catch { /* fall through */ }
-
-        try
-        {
-            // Decode JWT to get customer info (JWT is base64url)
-            var parts = token.Split('.');
-            if (parts.Length == 3)
-            {
-                var payload = parts[1];
-                // Pad base64
-                payload = payload.Replace('-', '+').Replace('_', '/');
-                switch (payload.Length % 4)
-                {
-                    case 2: payload += "=="; break;
-                    case 3: payload += "="; break;
-                }
-                var json = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(payload));
-                using var doc = JsonDocument.Parse(json);
-                if (doc.RootElement.TryGetProperty("customer_id", out var cid))
-                    return cid.GetString() ?? string.Empty;
-                if (doc.RootElement.TryGetProperty("_id", out var id))
-                    return id.GetString() ?? string.Empty;
-            }
-        }
-        catch { /* fall through */ }
-
-        _logger.LogWarning("Could not extract customer_id from login response or JWT");
-        return string.Empty;
-    }
 }
