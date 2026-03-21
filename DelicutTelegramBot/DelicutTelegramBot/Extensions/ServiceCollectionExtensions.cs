@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Telegram.Bot;
+using DelicutTelegramBot.BackgroundServices;
 using DelicutTelegramBot.Handlers;
 using DelicutTelegramBot.Infrastructure;
 using DelicutTelegramBot.Services;
@@ -41,6 +42,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<SelectWeekHandler>();
         services.AddScoped<ChangeDishHandler>();
         services.AddScoped<CancelHandler>();
+
+        // Background Services
+        services.AddHostedService<WednesdayReminderService>();
 
         // HTTP
         services.AddHttpClient();
