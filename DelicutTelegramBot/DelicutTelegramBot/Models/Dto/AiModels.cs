@@ -12,6 +12,11 @@ public class AiSelectionRequest
     public List<string> PreviousChoices { get; set; } = [];
     public bool PreferHistory { get; set; }
     public Dictionary<string, List<string>> WeekContext { get; set; } = new();
+
+    // Daily macro goals (priority order: protein > carbs > fat)
+    public double? ProteinGoalGrams { get; set; }
+    public double? CarbGoalGrams { get; set; }
+    public double? FatGoalGrams { get; set; }
 }
 
 public class AiSelectionResult

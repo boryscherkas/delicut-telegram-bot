@@ -146,10 +146,11 @@ public class FallbackSelectionServiceTests
     // ── Variety score (cuisine penalty) ──────────────────────────────────────
 
     [Fact]
-    public void Variety_SameCuisineInWeekContext_IsPenalized()
+    public void Variety_SameDishInWeekContext_IsPenalized()
     {
-        // Both dishes are "main", same rating, but "IndianDish" uses Indian cuisine
-        // which is already in weekContext — it should rank lower.
+        // Both dishes are "main", same rating, but "IndianDish" Name appears
+        // in weekContext (used on Monday) — it should rank lower due to variety penalty.
+        // MakeDish sets Name = id, so weekContext uses the id as the dish name.
         var dishes = new List<DishSummary>
         {
             MakeDish("IndianDish",    cuisine: "Indian",   rating: 4.0, protein: 30),
@@ -158,7 +159,7 @@ public class FallbackSelectionServiceTests
         var slots = new List<MealSlot> { Slot("main", 1) };
         var weekContext = new Dictionary<string, List<string>>
         {
-            ["Monday"] = ["Indian"]
+            ["Monday"] = ["IndianDish"]  // same Name as first dish
         };
 
         var result = _sut.Select(dishes, SelectionStrategy.Default, slots, weekContext);

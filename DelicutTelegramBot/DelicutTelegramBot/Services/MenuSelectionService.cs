@@ -144,12 +144,15 @@ public class MenuSelectionService : IMenuSelectionService
                 {
                     Strategy = user.Settings?.Strategy ?? SelectionStrategy.Default,
                     Date = day.Date,
-                    MealSlots = [new MealSlot { Category = category, Count = mealSlot.Count }],
+                    MealSlots = [new MealSlot { Category = category, ApiCategory = mealSlot.ApiCategory, Count = mealSlot.Count }],
                     AvailableDishes = dishSummaries,
                     StopWords = user.Settings?.StopWords ?? [],
                     PreviousChoices = previousChoices,
                     PreferHistory = user.Settings?.PreferHistory ?? false,
-                    WeekContext = weekContext
+                    WeekContext = weekContext,
+                    ProteinGoalGrams = user.Settings?.ProteinGoalGrams,
+                    CarbGoalGrams = user.Settings?.CarbGoalGrams,
+                    FatGoalGrams = user.Settings?.FatGoalGrams
                 };
 
                 // Try AI, fall back if null
@@ -164,13 +167,15 @@ public class MenuSelectionService : IMenuSelectionService
                     else
                     {
                         _logger.LogWarning("AI selection returned null for {Date} {Category}, using fallback", day.Date, category);
-                        result = _fallbackService.Select(dishSummaries, request.Strategy, request.MealSlots, weekContext);
+                        result = _fallbackService.Select(dishSummaries, request.Strategy, request.MealSlots, weekContext,
+                            request.ProteinGoalGrams, request.CarbGoalGrams, request.FatGoalGrams);
                     }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "AI selection failed for {Date} {Category}, using fallback", day.Date, category);
-                    result = _fallbackService.Select(dishSummaries, request.Strategy, request.MealSlots, weekContext);
+                    result = _fallbackService.Select(dishSummaries, request.Strategy, request.MealSlots, weekContext,
+                            request.ProteinGoalGrams, request.CarbGoalGrams, request.FatGoalGrams);
                 }
 
                 // Create PendingSelection rows and ProposedDish entries

@@ -19,6 +19,7 @@ public enum ConversationFlow
     Auth_WaitingEmail,
     Auth_WaitingOtp,
     Settings_WaitingStopWords,
+    Settings_WaitingMacroGoals,
     Select_ReviewingWeek,
     Select_PickingDay,
     Select_PickingDish,

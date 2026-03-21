@@ -74,6 +74,7 @@ public class BotHandler
                         await _startHandler.HandleTextAsync(update.Message, ct);
                         break;
                     case Models.Domain.ConversationFlow.Settings_WaitingStopWords:
+                    case Models.Domain.ConversationFlow.Settings_WaitingMacroGoals:
                         await _settingsHandler.HandleTextAsync(update.Message, ct);
                         break;
                     default:

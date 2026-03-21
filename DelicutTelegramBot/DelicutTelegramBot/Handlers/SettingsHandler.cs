@@ -58,6 +58,41 @@ public class SettingsHandler
                     cancellationToken: ct);
             }
         }
+        else if (state.CurrentFlow == ConversationFlow.Settings_WaitingMacroGoals)
+        {
+            var input = message.Text?.Trim() ?? "";
+            var parts = input.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            if (parts.Length != 3 ||
+                !double.TryParse(parts[0], out var protein) ||
+                !double.TryParse(parts[1], out var carbs) ||
+                !double.TryParse(parts[2], out var fat))
+            {
+                await _bot.SendMessage(message.Chat.Id,
+                    "Invalid format. Send 3 numbers: protein carbs fat\nExample: 190 200 50",
+                    cancellationToken: ct);
+                return;
+            }
+
+            var user = await _userService.GetByTelegramIdAsync(userId);
+            if (user is not null)
+            {
+                await _userService.UpdateSettingsAsync(user.Id, s =>
+                {
+                    s.ProteinGoalGrams = protein > 0 ? protein : null;
+                    s.CarbGoalGrams = carbs > 0 ? carbs : null;
+                    s.FatGoalGrams = fat > 0 ? fat : null;
+                });
+                _stateManager.Reset(userId);
+
+                if (protein == 0 && carbs == 0 && fat == 0)
+                    await _bot.SendMessage(message.Chat.Id, "Macro goals cleared.", cancellationToken: ct);
+                else
+                    await _bot.SendMessage(message.Chat.Id,
+                        $"Macro goals set: P:{protein}g C:{carbs}g F:{fat}g\n(Priority: protein > carbs > fat)",
+                        cancellationToken: ct);
+            }
+        }
     }
 
     public async Task HandleCallbackAsync(CallbackQuery callback, CancellationToken ct)
@@ -102,6 +137,24 @@ public class SettingsHandler
             state.LastActivity = DateTime.UtcNow;
             await _bot.SendMessage(chatId, "Send stop words separated by commas (e.g., biryani, veg, paneer):", cancellationToken: ct);
         }
+        else if (data == "settings:macros")
+        {
+            var state = _stateManager.GetOrCreate(userId);
+            state.CurrentFlow = ConversationFlow.Settings_WaitingMacroGoals;
+            state.LastActivity = DateTime.UtcNow;
+
+            var current = user.Settings;
+            var currentMsg = "Current goals: ";
+            if (current.ProteinGoalGrams.HasValue || current.CarbGoalGrams.HasValue || current.FatGoalGrams.HasValue)
+                currentMsg += $"P:{current.ProteinGoalGrams ?? 0}g C:{current.CarbGoalGrams ?? 0}g F:{current.FatGoalGrams ?? 0}g";
+            else
+                currentMsg += "not set";
+
+            await _bot.SendMessage(chatId,
+                $"{currentMsg}\n\nSend daily macro goals as: protein carbs fat\n" +
+                "Example: 190 200 50\n(in grams, priority: protein > carbs > fat)\n\nSend 0 0 0 to clear goals.",
+                cancellationToken: ct);
+        }
         else if (data == "settings:history")
         {
             await _userService.UpdateSettingsAsync(user.Id, s => s.PreferHistory = !s.PreferHistory);
@@ -133,9 +186,14 @@ public class SettingsHandler
             ? $"Stop Words: {string.Join(", ", settings.StopWords)}"
             : "Stop Words: none";
 
+        var macrosLabel = settings.ProteinGoalGrams.HasValue || settings.CarbGoalGrams.HasValue || settings.FatGoalGrams.HasValue
+            ? $"Macro Goals: P:{settings.ProteinGoalGrams ?? 0}g C:{settings.CarbGoalGrams ?? 0}g F:{settings.FatGoalGrams ?? 0}g"
+            : "Macro Goals: not set";
+
         var keyboard = new InlineKeyboardMarkup(new[]
         {
             new[] { InlineKeyboardButton.WithCallbackData($"Strategy: {strategyLabel}", "settings:strategy") },
+            new[] { InlineKeyboardButton.WithCallbackData(macrosLabel, "settings:macros") },
             new[] { InlineKeyboardButton.WithCallbackData(stopWordsLabel, "settings:stopwords") },
             new[] { InlineKeyboardButton.WithCallbackData($"Prefer History: {(settings.PreferHistory ? "ON" : "OFF")}", "settings:history") },
             new[] { InlineKeyboardButton.WithCallbackData("Re-authenticate", "settings:reauth") },
