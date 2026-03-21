@@ -103,24 +103,54 @@ public class FallbackSelectionService : IFallbackSelectionService
         HashSet<string> favourites,
         int favouritesStillNeeded)
     {
-        // Strategy/macro score
+        // Strategy/macro score — balanced approach:
+        // Base weight comes from priority order, but if a higher-priority macro is
+        // already close to goal (>95%), shift weight toward the most deficient macro.
         double strategyScore;
         if (proteinGoal.HasValue || carbGoal.HasValue || fatGoal.HasValue)
         {
-            // Assign weights by priority order: 0.5, 0.3, 0.2
-            var weights = new[] { 0.5, 0.3, 0.2 };
-            var scores = new Dictionary<string, double>
+            // How close is each macro to its goal? (1.0 = met or exceeded, 0.0 = zero)
+            var fulfillment = new Dictionary<string, double>
             {
-                ["p"] = proteinGoal > 0 ? Math.Min(dish.Protein / proteinGoal.Value, 1.0) : 0.5,
-                ["c"] = carbGoal > 0 ? Math.Min(dish.Carb / carbGoal.Value, 1.0) : 0.5,
-                ["f"] = fatGoal > 0 ? Math.Min(dish.Fat / fatGoal.Value, 1.0) : 0.5,
+                ["p"] = proteinGoal > 0 ? Math.Min(dish.Protein / proteinGoal.Value, 1.0) : 1.0,
+                ["c"] = carbGoal > 0 ? Math.Min(dish.Carb / carbGoal.Value, 1.0) : 1.0,
+                ["f"] = fatGoal > 0 ? Math.Min(dish.Fat / fatGoal.Value, 1.0) : 1.0,
             };
 
-            strategyScore = 0;
-            for (int i = 0; i < macroPriority.Count && i < weights.Length; i++)
+            // Base priority weights: 0.5, 0.3, 0.2
+            var baseWeights = new[] { 0.5, 0.3, 0.2 };
+            var weights = new Dictionary<string, double>();
+            for (int i = 0; i < macroPriority.Count && i < baseWeights.Length; i++)
+                weights[macroPriority[i]] = baseWeights[i];
+
+            // If a higher-priority macro is close (>95%), redistribute some of its weight
+            // to the most deficient macro. This prevents chasing +5g protein when carbs
+            // are 40% short.
+            const double closeThreshold = 0.95;
+            foreach (var macro in macroPriority)
             {
-                if (scores.TryGetValue(macroPriority[i], out var s))
-                    strategyScore += s * weights[i];
+                if (fulfillment.TryGetValue(macro, out var f) && f >= closeThreshold && weights.TryGetValue(macro, out var w))
+                {
+                    // Find the most deficient macro
+                    var mostDeficient = macroPriority
+                        .Where(m => m != macro && fulfillment.GetValueOrDefault(m, 1.0) < closeThreshold)
+                        .OrderBy(m => fulfillment.GetValueOrDefault(m, 1.0))
+                        .FirstOrDefault();
+
+                    if (mostDeficient != null)
+                    {
+                        var shift = w * 0.4; // Shift 40% of this macro's weight
+                        weights[macro] = w - shift;
+                        weights[mostDeficient] = weights.GetValueOrDefault(mostDeficient, 0) + shift;
+                    }
+                }
+            }
+
+            strategyScore = 0;
+            foreach (var macro in macroPriority)
+            {
+                if (fulfillment.TryGetValue(macro, out var f) && weights.TryGetValue(macro, out var w))
+                    strategyScore += f * w;
             }
         }
         else

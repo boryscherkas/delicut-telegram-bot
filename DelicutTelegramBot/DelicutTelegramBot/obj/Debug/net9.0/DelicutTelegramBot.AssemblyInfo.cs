@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DelicutTelegramBot")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+eff81de7a117d5b1922c2081badf9cf219496d1d")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+cb8bb8f175dd327ff3ae94328dbefed0ad6e51a5")]
 [assembly: System.Reflection.AssemblyProductAttribute("DelicutTelegramBot")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DelicutTelegramBot")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
