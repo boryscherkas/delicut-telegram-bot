@@ -154,7 +154,7 @@ public class SelectionHistory
 
     public User User { get; set; }
 }
-// UNIQUE constraint: (UserId, DishId, SelectedDate)
+// UNIQUE constraint: (UserId, DishId, SelectedDate, MealCategory)
 ```
 
 ### PendingSelections Table
@@ -229,7 +229,9 @@ DelicutTelegramBot/
 ├── Infrastructure/
 │   ├── AppDbContext.cs
 │   ├── Migrations/
-│   └── DelicutApiService.cs (stub)
+│   └── DelicutApiService.cs (stub — implements IDelicutApiService with NotImplementedException)
+├── BackgroundServices/
+│   └── WednesdayReminderService.cs (IHostedService)
 ├── State/
 │   └── ConversationStateManager.cs
 ├── Extensions/
@@ -267,10 +269,109 @@ public interface IMenuSelectionService
     Task<WeeklyProposal> SelectForWeekAsync(Guid userId);
     Task<List<DishAlternative>> GetAlternativesAsync(Guid userId, DateOnly date,
                                                       string mealCategory, int slotIndex);
-    Task ReplaceDishAsync(Guid userId, DateOnly date, int slotIndex, string newDishId,
-                           string proteinOption);
+    Task ReplaceDishAsync(Guid userId, DateOnly date, string mealCategory,
+                           int slotIndex, string newDishId, string proteinOption);
     Task ConfirmDayAsync(Guid userId, DateOnly date);
     Task ConfirmWeekAsync(Guid userId);
+}
+```
+
+### Return Types
+
+```csharp
+public class WeeklyProposal
+{
+    public List<DayProposal> Days { get; set; }
+    public List<DateOnly> LockedDays { get; set; }  // skipped because past cutoff
+}
+
+public class DayProposal
+{
+    public DateOnly Date { get; set; }
+    public string DayOfWeek { get; set; }
+    public List<ProposedDish> Dishes { get; set; }
+    public double TotalKcal { get; set; }
+    public double TotalProtein { get; set; }
+    public double TotalCarb { get; set; }
+    public double TotalFat { get; set; }
+}
+
+public class ProposedDish
+{
+    public string DishId { get; set; }
+    public string DishName { get; set; }
+    public string ProteinOption { get; set; }
+    public string MealCategory { get; set; }
+    public int SlotIndex { get; set; }
+    public double Kcal { get; set; }
+    public double Protein { get; set; }
+    public double Carb { get; set; }
+    public double Fat { get; set; }
+    public string AiReasoning { get; set; }
+}
+
+public class DishAlternative
+{
+    public string DishId { get; set; }
+    public string DishName { get; set; }
+    public string ProteinOption { get; set; }
+    public double Kcal { get; set; }
+    public double Protein { get; set; }
+    public double Carb { get; set; }
+    public double Fat { get; set; }
+    public double AvgRating { get; set; }
+}
+
+public class AiSelectionResult
+{
+    public List<AiDishPick> Picks { get; set; }
+}
+
+public class AiDishPick
+{
+    public string DishId { get; set; }
+    public string ProteinOption { get; set; }
+    public string MealCategory { get; set; }
+    public int SlotIndex { get; set; }
+    public string Reasoning { get; set; }
+}
+
+public class MealSlot
+{
+    public string Category { get; set; }  // "meal", "breakfast", "snack"
+    public int Count { get; set; }
+}
+
+public class DishSummary
+{
+    public string Id { get; set; }
+    public string Name { get; set; }
+    public string Cuisine { get; set; }
+    public double Kcal { get; set; }
+    public double Protein { get; set; }
+    public double Carb { get; set; }
+    public double Fat { get; set; }
+    public double Rating { get; set; }
+    public int TotalRatings { get; set; }
+    public string SpiceLevel { get; set; }
+    public string ProteinOption { get; set; }
+    public string MealCategory { get; set; }
+}
+
+public class DishSubmission
+{
+    public string DishId { get; set; }
+    public string ProteinOption { get; set; }
+    public string MealCategory { get; set; }
+    public int SlotIndex { get; set; }
+}
+
+public class PastDishSelection
+{
+    public string DishId { get; set; }
+    public string DishName { get; set; }
+    public string ProteinOption { get; set; }
+    public DateOnly Date { get; set; }
 }
 ```
 
@@ -377,10 +478,34 @@ User taps [✏️ Change Dishes]
 ### 5. Wednesday Menu Reminder
 
 ```
-Every Wednesday (checked via background hosted service):
-  → For each user with active subscription:
-      → Send: "🍽 New menu for next week is available! Use /select to choose your dishes."
+WednesdayReminderService (IHostedService):
+  → Runs daily at 09:00 UTC+4
+  → On Wednesdays only:
+      → Query users where DelicutToken is not null
+        AND subscription EndDate > today (active subscription)
+      → For each user:
+          → Send: "🍽 New menu for next week is available! Use /select to choose your dishes."
 ```
+
+### 6. Cancel Flow (`/cancel`)
+
+```
+User sends /cancel at any point
+  → Clear conversation state for this user
+  → Bot: "Cancelled. Use /select, /settings, or /start."
+```
+
+Any command (/start, /select, /settings, /cancel) also resets the current conversation state before starting the new flow.
+
+## Menu Caching
+
+During a `/select` flow, the fetched menus are stored in the conversation state's `FlowData` dictionary (keyed by `"menu:{date}:{mealCategory}"`). This avoids re-fetching from Delicut API when the user requests alternatives for a dish change. The cache lives only for the duration of the flow (cleared on timeout, /cancel, or flow completion).
+
+## Confirm/Submit Semantics
+
+- **`ConfirmDayAsync`**: Updates `pending_selections` status to `Confirmed` for that day. Does NOT call Delicut API yet.
+- **`ConfirmWeekAsync`**: For all days with `Confirmed` status, calls `IDelicutApiService.SubmitDishSelectionAsync` per day. On success, copies selections to `selection_history` and deletes `pending_selections`. On partial failure (some days succeed, some fail), reports which days failed and keeps those in `pending_selections` for retry.
+- **`[Approve All]` button**: Calls `ConfirmDayAsync` for all days, then `ConfirmWeekAsync`.
 
 ## Selection Logic
 
@@ -487,7 +612,7 @@ Timeout cleanup: states older than 30 minutes are cleared via periodic check.
 
 | Scenario | Handling |
 |----------|----------|
-| Delicut token expired (401) | Prompt re-auth via /start |
+| Delicut token expired (401) | Abort current flow, clear conversation state, send "Session expired. Use /start to re-authenticate." |
 | Invalid OTP | "Invalid OTP, try again" — 3 retries max |
 | No active subscription | "No active Delicut subscription found" |
 | All dishes filtered out | Relax filters, warn: "Only N dishes remain" |
@@ -495,6 +620,7 @@ Timeout cleanup: states older than 30 minutes are cleared via periodic check.
 | Cutoff passed mid-flow | Re-check before submit, inform which days locked |
 | Delicut API down | Retry once, then "Delicut unavailable, try later" |
 | Unexpected user input | Ignore if in no flow; show current flow prompt if in flow |
+| Bot restart mid-flow | Conversation state lost; user re-triggers command. Existing `pending_selections` with `Proposed` status are cleared on next `/select` run for that user |
 
 ## NuGet Packages
 
