@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Telegram.Bot;
+using DelicutTelegramBot.Handlers;
 using DelicutTelegramBot.Infrastructure;
 using DelicutTelegramBot.Services;
 using DelicutTelegramBot.State;
@@ -32,6 +33,14 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IDishFilterService, DishFilterService>();
         services.AddScoped<IFallbackSelectionService, FallbackSelectionService>();
         services.AddScoped<ISelectionHistoryService, SelectionHistoryService>();
+
+        // Handlers
+        services.AddScoped<BotHandler>();
+        services.AddScoped<StartHandler>();
+        services.AddScoped<SettingsHandler>();
+        services.AddScoped<SelectWeekHandler>();
+        services.AddScoped<ChangeDishHandler>();
+        services.AddScoped<CancelHandler>();
 
         // HTTP
         services.AddHttpClient();

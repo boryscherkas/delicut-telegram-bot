@@ -5,6 +5,7 @@ using Telegram.Bot;
 using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
 using DelicutTelegramBot.Extensions;
+using DelicutTelegramBot.Handlers;
 using DelicutTelegramBot.Infrastructure;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -33,8 +34,9 @@ var receiverOptions = new ReceiverOptions
 bot.StartReceiving(
     updateHandler: async (client, update, ct) =>
     {
-        // TODO: Route to BotHandler in Task 16
-        Console.WriteLine($"Received update: {update.Type}");
+        using var scope = host.Services.CreateScope();
+        var handler = scope.ServiceProvider.GetRequiredService<BotHandler>();
+        await handler.HandleUpdateAsync(update, ct);
     },
     errorHandler: (client, ex, ct) =>
     {
