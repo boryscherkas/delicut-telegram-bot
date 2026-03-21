@@ -7,8 +7,13 @@ using Telegram.Bot.Types;
 using DelicutTelegramBot.Extensions;
 using DelicutTelegramBot.Handlers;
 using DelicutTelegramBot.Infrastructure;
+using Microsoft.Extensions.Configuration;
 
 var builder = Host.CreateApplicationBuilder(args);
+
+// Always load user secrets (not just in Development)
+builder.Configuration.AddUserSecrets(typeof(Program).Assembly, optional: true);
+
 builder.Services.AddDelicutBot(builder.Configuration);
 
 var host = builder.Build();
