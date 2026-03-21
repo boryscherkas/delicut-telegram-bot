@@ -81,6 +81,12 @@ public class ChangeDishHandler
 
             var alternatives = await _menuService.GetAlternativesAsync(dbUserId, date, mealCategory, slotIndex);
 
+            // Store alternatives in state — use short index in callback (Telegram 64-byte limit)
+            state.FlowData["alternatives"] = alternatives;
+            state.FlowData["alt_date"] = date;
+            state.FlowData["alt_cat"] = mealCategory;
+            state.FlowData["alt_slot"] = slotIndex;
+
             // Current day/week totals
             var curDayKcal = day?.TotalKcal ?? 0;
             var curDayP = day?.TotalProtein ?? 0;
@@ -113,24 +119,29 @@ public class ChangeDishHandler
                 lines.Add($"  Week: {newWeekKcal:F0} kcal P:{newWeekP:F0}");
             }
 
-            var buttons = alternatives.Select(a =>
+            var buttons = alternatives.Select((a, i) =>
                 new[] { InlineKeyboardButton.WithCallbackData(
                     $"{a.DishName} ({a.ProteinOption})",
-                    $"change:replace:{date:yyyy-MM-dd}:{mealCategory}:{slotIndex}:{a.DishId}:{a.ProteinOption}") })
+                    $"change:pick:{i}") })  // Short callback: index into stored alternatives
                 .ToList();
             buttons.Add(new[] { InlineKeyboardButton.WithCallbackData("Keep Current", $"change:day:{date:yyyy-MM-dd}") });
 
             var keyboard = new InlineKeyboardMarkup(buttons);
             await _bot.SendMessage(chatId, string.Join("\n", lines), replyMarkup: keyboard, cancellationToken: ct);
         }
-        else if (data.StartsWith("change:replace:"))
+        else if (data.StartsWith("change:pick:"))
         {
-            var parts = data["change:replace:".Length..].Split(':');
-            var date = DateOnly.Parse(parts[0]);
-            var mealCategory = parts[1];
-            var slotIndex = int.Parse(parts[2]);
-            var newDishId = parts[3];
-            var proteinOption = parts[4];
+            // Resolve from stored alternatives
+            var altIndex = int.Parse(data["change:pick:".Length..]);
+            var alternatives = (List<DishAlternative>)state.FlowData["alternatives"];
+            var date = (DateOnly)state.FlowData["alt_date"];
+            var mealCategory = (string)state.FlowData["alt_cat"];
+            var slotIndex = (int)state.FlowData["alt_slot"];
+
+            if (altIndex < 0 || altIndex >= alternatives.Count) return;
+            var picked = alternatives[altIndex];
+            var newDishId = picked.DishId;
+            var proteinOption = picked.ProteinOption;
 
             // Capture old day/week totals before replacement
             var day = proposal.Days.FirstOrDefault(d => d.Date == date);
