@@ -30,7 +30,12 @@ public class AiDishPick
 
 public class MealSlot
 {
+    /// <summary>Internal category: "meal", "breakfast", "snack" — used for grouping slots</summary>
     public string Category { get; set; } = string.Empty;
+
+    /// <summary>API category: "lunch", "breakfast", "evening_snack" — used for FetchMenuAsync</summary>
+    public string ApiCategory { get; set; } = string.Empty;
+
     public int Count { get; set; }
 }
 

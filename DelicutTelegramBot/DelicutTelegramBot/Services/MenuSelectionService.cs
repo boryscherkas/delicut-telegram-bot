@@ -63,7 +63,12 @@ public class MenuSelectionService : IMenuSelectionService
             _delicutApi.GetDeliveryScheduleAsync(user.DelicutToken!, user.DelicutCustomerId!));
 
         var mealSlots = subscription.MealTypes
-            .Select(mt => new MealSlot { Category = mt.MealCategory.ToLower(), Count = mt.Qty })
+            .Select(mt => new MealSlot
+            {
+                Category = mt.MealCategory.ToLower(),   // "meal", "breakfast", "snack" — for internal grouping
+                ApiCategory = mt.MealType.ToLower(),     // "lunch", "breakfast", "evening_snack" — for API calls
+                Count = mt.Qty
+            })
             .ToList();
 
         var previousChoices = new List<string>();
@@ -107,8 +112,9 @@ public class MenuSelectionService : IMenuSelectionService
                 var cacheKey = $"menu:{day.Date}:{category}";
                 try
                 {
+                    // Use ApiCategory (e.g. "lunch") for the API, not Category (e.g. "meal")
                     menu = await CallApiSafeAsync(() =>
-                        _delicutApi.FetchMenuAsync(user.DelicutToken!, day.DeliveryId, category, uniqueIdForFetch));
+                        _delicutApi.FetchMenuAsync(user.DelicutToken!, day.DeliveryId, mealSlot.ApiCategory, uniqueIdForFetch));
                     state.FlowData[cacheKey] = menu;
                 }
                 catch (DelicutAuthExpiredException)
