@@ -139,12 +139,32 @@ public class DelicutApiService : IDelicutApiService
             "Check Network tab on delicut.ae when viewing the weekly meal plan.");
     }
 
-    public Task SubmitDishSelectionAsync(string token, string deliveryId,
-        string uniqueId, List<DishSubmission> selections)
+    public async Task SubmitDishSelectionAsync(string token, string customerId,
+        string deliveryId, string uniqueId, List<DishSubmission> selections)
     {
-        // TODO: Reverse-engineer the dish selection submission endpoint.
-        throw new NotImplementedException(
-            "Dish submission endpoint not yet reverse-engineered.");
+        using var client = CreateClient(token);
+
+        // API accepts one dish at a time via POST /v2/delivery/add-recipe
+        foreach (var dish in selections)
+        {
+            var payload = new
+            {
+                type = dish.MealCategory.ToLower(),
+                customer_id = customerId,
+                delivery_id = deliveryId,
+                recipe_id = dish.DishId,
+                variant = dish.ProteinOption,
+                size = dish.Size,
+                unique_id = uniqueId,
+                protein_category = dish.ProteinCategory
+            };
+
+            var response = await client.PostAsJsonAsync($"{_baseUrl}/v2/delivery/add-recipe", payload);
+            await EnsureSuccess(response);
+
+            _logger.LogInformation("Submitted dish {DishId} ({Variant}/{Size}) for delivery {DeliveryId}",
+                dish.DishId, dish.ProteinOption, dish.Size, deliveryId);
+        }
     }
 
     public Task<List<PastDishSelection>> GetPastSelectionsAsync(string token, string subscriptionId)

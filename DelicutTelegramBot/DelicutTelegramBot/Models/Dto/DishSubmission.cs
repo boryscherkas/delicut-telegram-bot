@@ -6,6 +6,8 @@ public class DishSubmission
     public string ProteinOption { get; set; } = string.Empty;
     public string MealCategory { get; set; } = string.Empty;
     public int SlotIndex { get; set; }
+    public string Size { get; set; } = string.Empty;
+    public string ProteinCategory { get; set; } = string.Empty;
 }
 
 public class PastDishSelection

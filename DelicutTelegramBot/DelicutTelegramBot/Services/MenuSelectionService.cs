@@ -347,6 +347,7 @@ public class MenuSelectionService : IMenuSelectionService
                 {
                     await _delicutApi.SubmitDishSelectionAsync(
                         user.DelicutToken!,
+                        user.DelicutCustomerId!,
                         group.Key.DeliveryId,
                         group.Key.UniqueId,
                         submissions);

@@ -10,6 +10,6 @@ public interface IDelicutApiService
     Task<Subscription> GetSubscriptionDetailsAsync(string token);
     Task<List<Dish>> FetchMenuAsync(string token, string deliveryId, string mealCategory, string uniqueId);
     Task<WeekDeliverySchedule> GetDeliveryScheduleAsync(string token, string subscriptionId);
-    Task SubmitDishSelectionAsync(string token, string deliveryId, string uniqueId, List<DishSubmission> selections);
+    Task SubmitDishSelectionAsync(string token, string customerId, string deliveryId, string uniqueId, List<DishSubmission> selections);
     Task<List<PastDishSelection>> GetPastSelectionsAsync(string token, string subscriptionId);
 }
