@@ -27,8 +27,14 @@ if (!string.IsNullOrEmpty(connectionString))
     await db.Database.MigrateAsync();
 }
 
-// Start bot polling
+// Set bot commands menu
 var bot = host.Services.GetRequiredService<ITelegramBotClient>();
+await bot.SetMyCommands([
+    new Telegram.Bot.Types.BotCommand { Command = "select", Description = "Select meals for the week" },
+    new Telegram.Bot.Types.BotCommand { Command = "settings", Description = "Configure preferences" },
+    new Telegram.Bot.Types.BotCommand { Command = "start", Description = "Authenticate with Delicut" },
+    new Telegram.Bot.Types.BotCommand { Command = "cancel", Description = "Cancel current action" },
+]);
 using var cts = new CancellationTokenSource();
 
 var receiverOptions = new ReceiverOptions
