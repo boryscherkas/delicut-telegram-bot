@@ -59,9 +59,8 @@ public class DelicutApiService : IDelicutApiService
     public async Task<OtpResponse> RequestOtpAsync(string email)
     {
         using var client = CreateClient();
-        var payload = new { email };
-
-        var response = await client.PostAsJsonAsync($"{_baseUrl}/v3/customer/sign-up?", payload);
+        var response = await PostJsonRawAsync(client, $"{_baseUrl}/v3/customer/sign-up?",
+            JsonSerializer.Serialize(new { email }));
         await EnsureSuccess(response);
 
         var result = await response.Content.ReadFromJsonAsync<DelicutApiResponse<OtpResponse>>(JsonOptions);
@@ -75,8 +74,8 @@ public class DelicutApiService : IDelicutApiService
         using var client = new HttpClient(handler);
         ApplyDefaultHeaders(client);
 
-        var payload = new { email, otp };
-        var response = await client.PostAsJsonAsync($"{_baseUrl}/v3/customer/sign-up?", payload);
+        var response = await PostJsonRawAsync(client, $"{_baseUrl}/v3/customer/sign-up?",
+            JsonSerializer.Serialize(new { email, otp }));
         await EnsureSuccess(response);
 
         // Token comes from Set-Cookie header
@@ -298,11 +297,29 @@ public class DelicutApiService : IDelicutApiService
 
     private static void ApplyDefaultHeaders(HttpClient client)
     {
-        client.DefaultRequestHeaders.TryAddWithoutValidation("accept", "application/json");
+        client.DefaultRequestHeaders.TryAddWithoutValidation("accept", "application/json, text/plain, */*");
+        client.DefaultRequestHeaders.TryAddWithoutValidation("accept-language", "en-US,en;q=0.9");
         client.DefaultRequestHeaders.TryAddWithoutValidation("origin", "https://delicut.ae");
         client.DefaultRequestHeaders.TryAddWithoutValidation("referer", "https://delicut.ae/");
+        client.DefaultRequestHeaders.TryAddWithoutValidation("sec-ch-ua", "\"Chromium\";v=\"146\", \"Not-A.Brand\";v=\"24\", \"Google Chrome\";v=\"146\"");
+        client.DefaultRequestHeaders.TryAddWithoutValidation("sec-ch-ua-mobile", "?0");
+        client.DefaultRequestHeaders.TryAddWithoutValidation("sec-ch-ua-platform", "\"macOS\"");
+        client.DefaultRequestHeaders.TryAddWithoutValidation("sec-fetch-dest", "empty");
+        client.DefaultRequestHeaders.TryAddWithoutValidation("sec-fetch-mode", "cors");
+        client.DefaultRequestHeaders.TryAddWithoutValidation("sec-fetch-site", "same-site");
         client.DefaultRequestHeaders.TryAddWithoutValidation("user-agent",
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36");
+    }
+
+    /// <summary>
+    /// Posts JSON with exact Content-Type: application/json (no charset suffix).
+    /// Some APIs reject the default application/json; charset=utf-8 from PostAsJsonAsync.
+    /// </summary>
+    private static async Task<HttpResponseMessage> PostJsonRawAsync(HttpClient client, string url, string json)
+    {
+        using var content = new StringContent(json, System.Text.Encoding.UTF8);
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+        return await client.PostAsync(url, content);
     }
 
     private async Task EnsureSuccess(HttpResponseMessage response)
