@@ -122,19 +122,22 @@ public class OpenAiService : IOpenAiService
 
             macroGoals = $"""
 
-            DAILY MACRO GOALS — these are MINIMUMS, not exact targets:
+            DAILY MACRO GOALS — these are MINIMUMS for the WHOLE DAY (sum of all meals):
             {string.Join("\n", goals)}
 
-            IMPORTANT: Goals are minimum thresholds. Meeting or EXCEEDING is good — never penalize going over.
+            IMPORTANT:
+            - Goals are daily totals — each meal contributes a portion. With 3 meals, aim for ~1/3 of the goal per meal.
+            - Meeting or EXCEEDING a goal is good — never penalize going over.
+            - When choosing between dishes, pick the one with HIGHER value for the prioritized macro.
+              Example: if {first} is the priority and dish A has 80g {first} vs dish B has 50g {first},
+              pick dish A even if dish B is slightly better on lower-priority macros.
 
             BALANCED PRIORITY LOGIC:
-            - Priority order matters: {first} > {second} > remaining.
-            - BUT: if a higher-priority macro is already CLOSE to goal (within ~5%),
-              shift focus to whichever macro has the BIGGEST gap.
-            - Example: if {first} is at 95% of goal but {second} is at 60%,
-              prioritize {second} — don't chase the last 5% of {first} while {second} suffers.
-            - The goal is to get ALL macros as close to their minimums as possible,
-              with priority as a tiebreaker when macros are similarly deficient.
+            - Priority: {first} > {second} > remaining.
+            - If all meals combined already nearly meet a higher-priority goal (within ~5%),
+              shift focus to whichever macro has the biggest gap vs its daily target.
+            - Goal: get ALL macros as close to their daily minimums as possible,
+              with priority as tiebreaker when macros are similarly deficient.
             """;
         }
 

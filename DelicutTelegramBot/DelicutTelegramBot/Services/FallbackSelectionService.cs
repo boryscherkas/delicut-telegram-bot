@@ -34,10 +34,14 @@ public class FallbackSelectionService : IFallbackSelectionService
 
         var favouritesStillNeeded = Math.Max(0, minFavouritesPerWeek - favouriteCountInWeek);
 
-        // Pre-compute normalisation constants
+        // Pre-compute normalisation constants (max values across all dishes)
         double maxProtein = dishes.Count > 0 ? dishes.Max(d => d.Protein) : 1.0;
+        double maxCarb = dishes.Count > 0 ? dishes.Max(d => d.Carb) : 1.0;
+        double maxFat = dishes.Count > 0 ? dishes.Max(d => d.Fat) : 1.0;
         double maxKcal = dishes.Count > 0 ? dishes.Max(d => d.Kcal) : 1.0;
         if (maxProtein == 0) maxProtein = 1.0;
+        if (maxCarb == 0) maxCarb = 1.0;
+        if (maxFat == 0) maxFat = 1.0;
         if (maxKcal == 0) maxKcal = 1.0;
 
         // Group by meal category
@@ -61,7 +65,7 @@ public class FallbackSelectionService : IFallbackSelectionService
                 .ToList();
 
             var ranked = available
-                .Select(d => (dish: d, score: Score(d, strategy, maxProtein, maxKcal,
+                .Select(d => (dish: d, score: Score(d, strategy, maxProtein, maxCarb, maxFat, maxKcal,
                     usedCuisines, usedDishNames, proteinGoal, carbGoal, fatGoal,
                     macroPriority ?? ["p", "c", "f"], favourites, favouritesStillNeeded)))
                 .OrderByDescending(t => t.score)
@@ -93,6 +97,8 @@ public class FallbackSelectionService : IFallbackSelectionService
         DishSummary dish,
         SelectionStrategy strategy,
         double maxProtein,
+        double maxCarb,
+        double maxFat,
         double maxKcal,
         HashSet<string> usedCuisines,
         HashSet<string> usedDishNames,
@@ -103,54 +109,29 @@ public class FallbackSelectionService : IFallbackSelectionService
         HashSet<string> favourites,
         int favouritesStillNeeded)
     {
-        // Strategy/macro score — balanced approach:
-        // Base weight comes from priority order, but if a higher-priority macro is
-        // already close to goal (>95%), shift weight toward the most deficient macro.
+        // Strategy/macro score using RELATIVE ranking within the dish pool.
+        // Score = how this dish compares to the BEST available dish for each macro.
+        // This ensures high-carb dishes score significantly higher than low-carb dishes
+        // when carbs are the goal — even though no single dish hits the full daily target.
         double strategyScore;
         if (proteinGoal.HasValue || carbGoal.HasValue || fatGoal.HasValue)
         {
-            // How close is each macro to its goal? (1.0 = met or exceeded, 0.0 = zero)
-            var fulfillment = new Dictionary<string, double>
+            // Relative score: how does this dish compare to the best in the pool? (0-1)
+            var relativeScores = new Dictionary<string, double>
             {
-                ["p"] = proteinGoal > 0 ? Math.Min(dish.Protein / proteinGoal.Value, 1.0) : 1.0,
-                ["c"] = carbGoal > 0 ? Math.Min(dish.Carb / carbGoal.Value, 1.0) : 1.0,
-                ["f"] = fatGoal > 0 ? Math.Min(dish.Fat / fatGoal.Value, 1.0) : 1.0,
+                ["p"] = proteinGoal > 0 ? dish.Protein / maxProtein : 0.5,
+                ["c"] = carbGoal > 0 ? dish.Carb / maxCarb : 0.5,
+                ["f"] = fatGoal > 0 ? dish.Fat / maxFat : 0.5,
             };
 
-            // Base priority weights: 0.5, 0.3, 0.2
+            // Priority weights: 0.5, 0.3, 0.2
             var baseWeights = new[] { 0.5, 0.3, 0.2 };
-            var weights = new Dictionary<string, double>();
-            for (int i = 0; i < macroPriority.Count && i < baseWeights.Length; i++)
-                weights[macroPriority[i]] = baseWeights[i];
-
-            // If a higher-priority macro is close (>95%), redistribute some of its weight
-            // to the most deficient macro. This prevents chasing +5g protein when carbs
-            // are 40% short.
-            const double closeThreshold = 0.95;
-            foreach (var macro in macroPriority)
-            {
-                if (fulfillment.TryGetValue(macro, out var f) && f >= closeThreshold && weights.TryGetValue(macro, out var w))
-                {
-                    // Find the most deficient macro
-                    var mostDeficient = macroPriority
-                        .Where(m => m != macro && fulfillment.GetValueOrDefault(m, 1.0) < closeThreshold)
-                        .OrderBy(m => fulfillment.GetValueOrDefault(m, 1.0))
-                        .FirstOrDefault();
-
-                    if (mostDeficient != null)
-                    {
-                        var shift = w * 0.4; // Shift 40% of this macro's weight
-                        weights[macro] = w - shift;
-                        weights[mostDeficient] = weights.GetValueOrDefault(mostDeficient, 0) + shift;
-                    }
-                }
-            }
 
             strategyScore = 0;
-            foreach (var macro in macroPriority)
+            for (int i = 0; i < macroPriority.Count && i < baseWeights.Length; i++)
             {
-                if (fulfillment.TryGetValue(macro, out var f) && weights.TryGetValue(macro, out var w))
-                    strategyScore += f * w;
+                if (relativeScores.TryGetValue(macroPriority[i], out var s))
+                    strategyScore += s * baseWeights[i];
             }
         }
         else
