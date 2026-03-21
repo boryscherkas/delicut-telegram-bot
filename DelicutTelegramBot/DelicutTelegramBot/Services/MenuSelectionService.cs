@@ -188,8 +188,29 @@ public class MenuSelectionService : IMenuSelectionService
                 foreach (var pick in result.Picks)
                 {
                     var dish = filtered.FirstOrDefault(d => d.Id == pick.DishId);
-                    var variant = dish?.Variants.FirstOrDefault(v =>
+                    if (dish is null)
+                    {
+                        _logger.LogWarning("AI picked dish {DishId} not found in filtered list for {Date} {Category}",
+                            pick.DishId, day.Date, category);
+                        continue;
+                    }
+
+                    // Try exact protein option match, fall back to preferred, then first variant
+                    var variant = dish.Variants.FirstOrDefault(v =>
                         v.ProteinOption.Equals(pick.ProteinOption, StringComparison.OrdinalIgnoreCase));
+                    if (variant is null && !string.IsNullOrEmpty(user.Settings?.PreferredProteinVariant))
+                    {
+                        variant = dish.Variants.FirstOrDefault(v =>
+                            v.ProteinOption.Equals(user.Settings.PreferredProteinVariant, StringComparison.OrdinalIgnoreCase));
+                    }
+                    variant ??= dish.Variants.FirstOrDefault();
+
+                    if (variant is null)
+                    {
+                        _logger.LogWarning("Dish {DishId} ({DishName}) has no variants after filtering",
+                            dish.Id, dish.DishName);
+                        continue;
+                    }
 
                     // Find the matching slot's UniqueId for this pick
                     var slotsForCategory = slotsByCategory.GetValueOrDefault(category);
@@ -206,12 +227,12 @@ public class MenuSelectionService : IMenuSelectionService
                         MealCategory = pick.MealCategory,
                         SlotIndex = pick.SlotIndex,
                         DishId = pick.DishId,
-                        DishName = dish?.DishName ?? string.Empty,
-                        VariantProtein = pick.ProteinOption,
-                        Kcal = variant?.Kcal ?? 0,
-                        Protein = variant?.Protein ?? 0,
-                        Carb = variant?.Carb ?? 0,
-                        Fat = variant?.Fat ?? 0,
+                        DishName = dish.DishName,
+                        VariantProtein = variant.ProteinOption,
+                        Kcal = variant.Kcal,
+                        Protein = variant.Protein,
+                        Carb = variant.Carb,
+                        Fat = variant.Fat,
                         Status = PendingSelectionStatus.Proposed,
                         CreatedAt = DateTime.UtcNow,
                         UpdatedAt = DateTime.UtcNow
@@ -221,14 +242,14 @@ public class MenuSelectionService : IMenuSelectionService
                     dayDishes.Add(new ProposedDish
                     {
                         DishId = pick.DishId,
-                        DishName = dish?.DishName ?? string.Empty,
-                        ProteinOption = pick.ProteinOption,
+                        DishName = dish.DishName,
+                        ProteinOption = variant.ProteinOption,
                         MealCategory = pick.MealCategory,
                         SlotIndex = pick.SlotIndex,
-                        Kcal = variant?.Kcal ?? 0,
-                        Protein = variant?.Protein ?? 0,
-                        Carb = variant?.Carb ?? 0,
-                        Fat = variant?.Fat ?? 0,
+                        Kcal = variant.Kcal,
+                        Protein = variant.Protein,
+                        Carb = variant.Carb,
+                        Fat = variant.Fat,
                         AiReasoning = pick.Reasoning
                     });
                 }
