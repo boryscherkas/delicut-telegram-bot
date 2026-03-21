@@ -50,7 +50,10 @@ public class SelectWeekHandler
         state.FlowData["user_id"] = user.Id;
         state.LastActivity = DateTime.UtcNow;
 
-        var text = FormatWeekOverview(proposal);
+        var text = FormatWeekOverview(proposal,
+            user.Settings?.ProteinGoalGrams,
+            user.Settings?.CarbGoalGrams,
+            user.Settings?.FatGoalGrams);
 
         var keyboard = new InlineKeyboardMarkup(new[]
         {
@@ -125,9 +128,17 @@ public class SelectWeekHandler
         await _bot.AnswerCallbackQuery(callback.Id, cancellationToken: ct);
     }
 
-    private static string FormatWeekOverview(WeeklyProposal proposal)
+    private static string FormatWeekOverview(WeeklyProposal proposal,
+        double? proteinGoal = null, double? carbGoal = null, double? fatGoal = null)
     {
         var lines = new List<string>();
+        var hasGoals = proteinGoal.HasValue || carbGoal.HasValue || fatGoal.HasValue;
+
+        if (hasGoals)
+        {
+            lines.Add($"Daily goals: P:{proteinGoal ?? 0}g C:{carbGoal ?? 0}g F:{fatGoal ?? 0}g");
+            lines.Add("");
+        }
 
         if (proposal.LockedDays.Count > 0)
             lines.Add($"Locked days (past cutoff): {string.Join(", ", proposal.LockedDays)}\n");
@@ -146,10 +157,35 @@ public class SelectWeekHandler
                 };
                 lines.Add($"  {emoji} {dish.SlotIndex + 1}. {dish.DishName} ({dish.ProteinOption}) \u2014 {dish.Kcal:F0} kcal | P:{dish.Protein:F0} C:{dish.Carb:F0} F:{dish.Fat:F0}");
             }
-            lines.Add($"  Total: {day.TotalKcal:F0} kcal | P:{day.TotalProtein:F0} C:{day.TotalCarb:F0} F:{day.TotalFat:F0}");
+
+            var totalLine = $"  Total: {day.TotalKcal:F0} kcal | P:{day.TotalProtein:F0} C:{day.TotalCarb:F0} F:{day.TotalFat:F0}";
+            if (hasGoals)
+            {
+                var pDiff = day.TotalProtein - (proteinGoal ?? 0);
+                var cDiff = day.TotalCarb - (carbGoal ?? 0);
+                var fDiff = day.TotalFat - (fatGoal ?? 0);
+                totalLine += $"\n  vs Goal: {Diff(pDiff)}P {Diff(cDiff)}C {Diff(fDiff)}F";
+            }
+            lines.Add(totalLine);
             lines.Add("");
+        }
+
+        // Week summary
+        if (proposal.Days.Count > 0)
+        {
+            var avgKcal = proposal.Days.Average(d => d.TotalKcal);
+            var avgP = proposal.Days.Average(d => d.TotalProtein);
+            var avgC = proposal.Days.Average(d => d.TotalCarb);
+            var avgF = proposal.Days.Average(d => d.TotalFat);
+            lines.Add($"Week avg: {avgKcal:F0} kcal/day | P:{avgP:F0} C:{avgC:F0} F:{avgF:F0}");
+            if (hasGoals)
+            {
+                lines.Add($"vs Goal:  {Diff(avgP - (proteinGoal ?? 0))}P {Diff(avgC - (carbGoal ?? 0))}C {Diff(avgF - (fatGoal ?? 0))}F");
+            }
         }
 
         return string.Join("\n", lines);
     }
+
+    private static string Diff(double val) => val >= 0 ? $"+{val:F0}" : $"{val:F0}";
 }
