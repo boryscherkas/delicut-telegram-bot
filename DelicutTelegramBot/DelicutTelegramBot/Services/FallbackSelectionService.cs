@@ -105,11 +105,12 @@ public class FallbackSelectionService : IFallbackSelectionService
         double strategyScore;
         if (proteinGoal.HasValue || carbGoal.HasValue || fatGoal.HasValue)
         {
+            // Goals are minimums — reaching or exceeding is good, not penalized.
+            // Score = how close to meeting the goal (capped at 1.0 = goal met or exceeded).
             double protScore = proteinGoal > 0 ? Math.Min(dish.Protein / proteinGoal.Value, 1.0) : 0.5;
             double carbScore = carbGoal > 0 ? Math.Min(dish.Carb / carbGoal.Value, 1.0) : 0.5;
             double fatScore = fatGoal > 0 ? Math.Min(dish.Fat / fatGoal.Value, 1.0) : 0.5;
-            if (fatGoal > 0 && dish.Fat > fatGoal.Value * 0.5)
-                fatScore *= 0.7;
+            // No penalty for exceeding targets — they are minimums
             strategyScore = protScore * 0.5 + carbScore * 0.3 + fatScore * 0.2;
         }
         else

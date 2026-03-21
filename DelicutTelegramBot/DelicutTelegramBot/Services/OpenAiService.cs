@@ -107,14 +107,15 @@ public class OpenAiService : IOpenAiService
 
             macroGoals = $"""
 
-            DAILY MACRO GOALS (in priority order):
+            DAILY MACRO GOALS — these are MINIMUMS, not exact targets:
             {string.Join("\n", goals)}
 
-            Priority logic: First, get as close to the protein goal as possible across all meals for the day.
-            Once protein is near the goal, optimize carbs to hit the carb target.
+            IMPORTANT: Goals are minimum thresholds. Meeting or EXCEEDING a goal is good — never penalize going over.
+            Priority logic: First, reach the protein minimum across all meals for the day.
+            Once protein minimum is met, optimize carbs toward its minimum.
             Once both are met, optimize fat. Do NOT sacrifice a higher-priority macro for a lower one.
-            For example: if picking dish A gives 190g protein + 150g carbs vs dish B gives 170g protein + 200g carbs,
-            pick A because protein goal is higher priority.
+            For example: if picking dish A gives 210g protein + 150g carbs vs dish B gives 180g protein + 200g carbs,
+            pick A because reaching the protein minimum is higher priority.
             """;
         }
 
