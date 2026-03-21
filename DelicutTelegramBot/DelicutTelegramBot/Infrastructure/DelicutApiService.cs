@@ -10,6 +10,28 @@ using DelicutTelegramBot.Services;
 
 namespace DelicutTelegramBot.Infrastructure;
 
+/// <summary>Raw delivery item from GET /v1/delivery/list</summary>
+internal class DelicutDeliveryItem
+{
+    [JsonPropertyName("_id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("subscription_id")]
+    public string SubscriptionId { get; set; } = string.Empty;
+
+    [JsonPropertyName("delivery_date")]
+    public DateTime DeliveryDate { get; set; }
+
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = string.Empty;
+
+    [JsonPropertyName("not_deliverable")]
+    public bool NotDeliverable { get; set; }
+
+    [JsonPropertyName("is_delivery_freezed")]
+    public bool IsDeliveryFreezed { get; set; }
+}
+
 public class DelicutApiService : IDelicutApiService
 {
     private readonly IHttpClientFactory _httpClientFactory;
@@ -130,13 +152,39 @@ public class DelicutApiService : IDelicutApiService
 
     // --- NOT YET REVERSE-ENGINEERED ---
 
-    public Task<WeekDeliverySchedule> GetDeliveryScheduleAsync(string token, string subscriptionId)
+    public async Task<WeekDeliverySchedule> GetDeliveryScheduleAsync(string token, string subscriptionId)
     {
-        // TODO: Reverse-engineer the delivery schedule endpoint.
-        // For now, this needs to be discovered from the Delicut website.
-        throw new NotImplementedException(
-            "Delivery schedule endpoint not yet reverse-engineered. " +
-            "Check Network tab on delicut.ae when viewing the weekly meal plan.");
+        using var client = CreateClient(token);
+        var response = await client.GetAsync($"{_baseUrl}/v1/delivery/list");
+        await EnsureSuccess(response);
+
+        var result = await response.Content.ReadFromJsonAsync<DelicutApiResponse<List<DelicutDeliveryItem>>>(JsonOptions);
+        var deliveries = result?.Data ?? [];
+
+        var schedule = new WeekDeliverySchedule
+        {
+            Days = deliveries
+                .Where(d => d.Status == "Pending" && !d.NotDeliverable && !d.IsDeliveryFreezed)
+                .Select(d =>
+                {
+                    var date = DateOnly.FromDateTime(d.DeliveryDate);
+                    return new DeliveryDay
+                    {
+                        Date = date,
+                        DayOfWeek = date.DayOfWeek.ToString().ToLower(),
+                        DeliveryId = d.Id,
+                        // unique_id is not in this response — needs to be discovered
+                        // from another endpoint or passed separately
+                        UniqueId = string.Empty,
+                        MealCategories = [], // populated from subscription MealTypes
+                        IsLocked = Helpers.CutoffHelper.IsLocked(date)
+                    };
+                })
+                .OrderBy(d => d.Date)
+                .ToList()
+        };
+
+        return schedule;
     }
 
     public async Task SubmitDishSelectionAsync(string token, string customerId,
