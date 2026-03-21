@@ -13,6 +13,9 @@ public class UserSettings
     public double? CarbGoalGrams { get; set; }
     public double? FatGoalGrams { get; set; }
 
+    // Priority order: "p,c,f" (default) or "c,p,f" etc. First = highest priority.
+    public string MacroPriority { get; set; } = "p,c,f";
+
     // Preferred protein variant (e.g., "Shrimps", "Chicken") — always pick this when available
     public string? PreferredProteinVariant { get; set; }
 

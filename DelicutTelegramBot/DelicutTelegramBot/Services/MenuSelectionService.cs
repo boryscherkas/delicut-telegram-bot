@@ -151,6 +151,8 @@ public class MenuSelectionService : IMenuSelectionService
                     PreviousChoices = previousChoices,
                     PreferHistory = user.Settings?.PreferHistory ?? false,
                     WeekContext = weekContext,
+                    MacroPriority = (user.Settings?.MacroPriority ?? "p,c,f")
+                        .Split(',').Select(s => s.Trim()).ToList(),
                     ProteinGoalGrams = user.Settings?.ProteinGoalGrams,
                     CarbGoalGrams = user.Settings?.CarbGoalGrams,
                     FatGoalGrams = user.Settings?.FatGoalGrams,
@@ -173,7 +175,7 @@ public class MenuSelectionService : IMenuSelectionService
                         _logger.LogWarning("AI selection returned null for {Date} {Category}, using fallback", day.Date, category);
                         result = _fallbackService.Select(dishSummaries, request.Strategy, request.MealSlots, weekContext,
                             request.ProteinGoalGrams, request.CarbGoalGrams, request.FatGoalGrams,
-                            request.FavouriteDishNames, request.MinFavouritesPerWeek);
+                            request.MacroPriority, request.FavouriteDishNames, request.MinFavouritesPerWeek);
                     }
                 }
                 catch (Exception ex)
@@ -181,7 +183,7 @@ public class MenuSelectionService : IMenuSelectionService
                     _logger.LogWarning(ex, "AI selection failed for {Date} {Category}, using fallback", day.Date, category);
                     result = _fallbackService.Select(dishSummaries, request.Strategy, request.MealSlots, weekContext,
                             request.ProteinGoalGrams, request.CarbGoalGrams, request.FatGoalGrams,
-                            request.FavouriteDishNames, request.MinFavouritesPerWeek);
+                            request.MacroPriority, request.FavouriteDishNames, request.MinFavouritesPerWeek);
                 }
 
                 // Create PendingSelection rows and ProposedDish entries

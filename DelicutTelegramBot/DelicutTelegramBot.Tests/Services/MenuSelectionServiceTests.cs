@@ -291,7 +291,7 @@ public class MenuSelectionServiceTests : IDisposable
 
         _fallback.Setup(f => f.Select(It.IsAny<List<DishSummary>>(), It.IsAny<SelectionStrategy>(), It.IsAny<List<MealSlot>>(), It.IsAny<Dictionary<string, List<string>>>(),
                 It.IsAny<double?>(), It.IsAny<double?>(), It.IsAny<double?>(),
-                It.IsAny<List<string>?>(), It.IsAny<int>()))
+                It.IsAny<List<string>?>(), It.IsAny<List<string>?>(), It.IsAny<int>()))
             .Returns(MakeAiResult("dish-1"));
         _history.Setup(h => h.GetPreviousChoiceNamesAsync(It.IsAny<Guid>(), It.IsAny<int>()))
             .ReturnsAsync([]);
@@ -306,7 +306,7 @@ public class MenuSelectionServiceTests : IDisposable
             It.IsAny<List<MealSlot>>(),
             It.IsAny<Dictionary<string, List<string>>>(),
             It.IsAny<double?>(), It.IsAny<double?>(), It.IsAny<double?>(),
-                It.IsAny<List<string>?>(), It.IsAny<int>()),
+                It.IsAny<List<string>?>(), It.IsAny<List<string>?>(), It.IsAny<int>()),
             Times.Once);
     }
 

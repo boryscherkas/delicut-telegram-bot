@@ -18,6 +18,9 @@ public class AiSelectionRequest
     public double? CarbGoalGrams { get; set; }
     public double? FatGoalGrams { get; set; }
 
+    // Priority order: ["p","c","f"] — first = highest priority
+    public List<string> MacroPriority { get; set; } = ["p", "c", "f"];
+
     // Preferred protein variant — always pick this when available for a dish
     public string? PreferredProteinVariant { get; set; }
 

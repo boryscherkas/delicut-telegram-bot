@@ -60,37 +60,84 @@ public class SettingsHandler
         }
         else if (state.CurrentFlow == ConversationFlow.Settings_WaitingMacroGoals)
         {
-            var input = message.Text?.Trim() ?? "";
-            var parts = input.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var input = message.Text?.Trim().ToLowerInvariant() ?? "";
 
-            if (parts.Length != 3 ||
-                !double.TryParse(parts[0], out var protein) ||
-                !double.TryParse(parts[1], out var carbs) ||
-                !double.TryParse(parts[2], out var fat))
+            if (input is "clear" or "0")
+            {
+                var user = await _userService.GetByTelegramIdAsync(userId);
+                if (user is not null)
+                {
+                    await _userService.UpdateSettingsAsync(user.Id, s =>
+                    {
+                        s.ProteinGoalGrams = null;
+                        s.CarbGoalGrams = null;
+                        s.FatGoalGrams = null;
+                        s.MacroPriority = "p,c,f";
+                    });
+                    _stateManager.Reset(userId);
+                    await _bot.SendMessage(message.Chat.Id, "Macro goals cleared.", cancellationToken: ct);
+                }
+                return;
+            }
+
+            // Parse "190p 200c 50f" — order defines priority
+            var parts = input.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            double? protein = null, carbs = null, fat = null;
+            var priority = new List<string>();
+
+            foreach (var part in parts)
+            {
+                if (part.EndsWith('p') && double.TryParse(part[..^1], out var pVal))
+                {
+                    protein = pVal;
+                    priority.Add("p");
+                }
+                else if (part.EndsWith('c') && double.TryParse(part[..^1], out var cVal))
+                {
+                    carbs = cVal;
+                    priority.Add("c");
+                }
+                else if (part.EndsWith('f') && double.TryParse(part[..^1], out var fVal))
+                {
+                    fat = fVal;
+                    priority.Add("f");
+                }
+            }
+
+            if (priority.Count == 0)
             {
                 await _bot.SendMessage(message.Chat.Id,
-                    "Invalid format. Send 3 numbers: protein carbs fat\nExample: 190 200 50",
+                    "Invalid format. Use: 190p 200c 50f\nOrder = priority (first = highest).\nSend 'clear' to remove.",
                     cancellationToken: ct);
                 return;
             }
 
-            var user = await _userService.GetByTelegramIdAsync(userId);
-            if (user is not null)
+            // Fill missing priorities at the end
+            foreach (var m in new[] { "p", "c", "f" })
+                if (!priority.Contains(m)) priority.Add(m);
+
+            var user2 = await _userService.GetByTelegramIdAsync(userId);
+            if (user2 is not null)
             {
-                await _userService.UpdateSettingsAsync(user.Id, s =>
+                await _userService.UpdateSettingsAsync(user2.Id, s =>
                 {
-                    s.ProteinGoalGrams = protein > 0 ? protein : null;
-                    s.CarbGoalGrams = carbs > 0 ? carbs : null;
-                    s.FatGoalGrams = fat > 0 ? fat : null;
+                    s.ProteinGoalGrams = protein;
+                    s.CarbGoalGrams = carbs;
+                    s.FatGoalGrams = fat;
+                    s.MacroPriority = string.Join(",", priority);
                 });
                 _stateManager.Reset(userId);
 
-                if (protein == 0 && carbs == 0 && fat == 0)
-                    await _bot.SendMessage(message.Chat.Id, "Macro goals cleared.", cancellationToken: ct);
-                else
-                    await _bot.SendMessage(message.Chat.Id,
-                        $"Macro goals set: P:{protein}g C:{carbs}g F:{fat}g\n(Priority: protein > carbs > fat)",
-                        cancellationToken: ct);
+                var priorityLabels = priority.Select(p => p switch
+                {
+                    "p" => $"Protein {protein ?? 0}g",
+                    "c" => $"Carbs {carbs ?? 0}g",
+                    "f" => $"Fat {fat ?? 0}g",
+                    _ => p
+                });
+                await _bot.SendMessage(message.Chat.Id,
+                    $"Macro goals set!\nPriority: {string.Join(" > ", priorityLabels)}",
+                    cancellationToken: ct);
             }
         }
         else if (state.CurrentFlow == ConversationFlow.Settings_WaitingProteinVariant)
@@ -219,8 +266,11 @@ public class SettingsHandler
                 currentMsg += "not set";
 
             await _bot.SendMessage(chatId,
-                $"{currentMsg}\n\nSend daily macro goals as: protein carbs fat\n" +
-                "Example: 190 200 50\n(in grams, priority: protein > carbs > fat)\n\nSend 0 0 0 to clear goals.",
+                $"{currentMsg}\nPriority: {current.MacroPriority}\n\n" +
+                "Send macro goals as: 190p 200c 50f\n" +
+                "Order = priority (first = most important).\n" +
+                "Examples:\n  190p 200c 50f  (protein first)\n  200c 190p 50f  (carbs first)\n  190p  (protein only)\n\n" +
+                "Send 'clear' to remove goals.",
                 cancellationToken: ct);
         }
         else if (data == "settings:protein")
@@ -285,9 +335,23 @@ public class SettingsHandler
             ? $"Stop Words: {string.Join(", ", settings.StopWords)}"
             : "Stop Words: none";
 
-        var macrosLabel = settings.ProteinGoalGrams.HasValue || settings.CarbGoalGrams.HasValue || settings.FatGoalGrams.HasValue
-            ? $"Macro Goals: P:{settings.ProteinGoalGrams ?? 0}g C:{settings.CarbGoalGrams ?? 0}g F:{settings.FatGoalGrams ?? 0}g"
-            : "Macro Goals: not set";
+        string macrosLabel;
+        if (settings.ProteinGoalGrams.HasValue || settings.CarbGoalGrams.HasValue || settings.FatGoalGrams.HasValue)
+        {
+            var parts = settings.MacroPriority.Split(',');
+            var labels = parts.Select(p => p.Trim() switch
+            {
+                "p" => $"P:{settings.ProteinGoalGrams ?? 0}g",
+                "c" => $"C:{settings.CarbGoalGrams ?? 0}g",
+                "f" => $"F:{settings.FatGoalGrams ?? 0}g",
+                _ => ""
+            }).Where(s => s.Length > 0);
+            macrosLabel = $"Macros: {string.Join(" > ", labels)}";
+        }
+        else
+        {
+            macrosLabel = "Macro Goals: not set";
+        }
 
         var proteinLabel = !string.IsNullOrEmpty(settings.PreferredProteinVariant)
             ? $"Preferred Protein: {settings.PreferredProteinVariant}"

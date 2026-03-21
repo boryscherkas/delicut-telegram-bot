@@ -13,6 +13,7 @@ public class FallbackSelectionService : IFallbackSelectionService
         double? proteinGoal = null,
         double? carbGoal = null,
         double? fatGoal = null,
+        List<string>? macroPriority = null,
         List<string>? favouriteDishNames = null,
         int minFavouritesPerWeek = 0)
     {
@@ -62,7 +63,7 @@ public class FallbackSelectionService : IFallbackSelectionService
             var ranked = available
                 .Select(d => (dish: d, score: Score(d, strategy, maxProtein, maxKcal,
                     usedCuisines, usedDishNames, proteinGoal, carbGoal, fatGoal,
-                    favourites, favouritesStillNeeded)))
+                    macroPriority ?? ["p", "c", "f"], favourites, favouritesStillNeeded)))
                 .OrderByDescending(t => t.score)
                 .Take(slot.Count)
                 .ToList();
@@ -98,6 +99,7 @@ public class FallbackSelectionService : IFallbackSelectionService
         double? proteinGoal,
         double? carbGoal,
         double? fatGoal,
+        List<string> macroPriority,
         HashSet<string> favourites,
         int favouritesStillNeeded)
     {
@@ -105,13 +107,21 @@ public class FallbackSelectionService : IFallbackSelectionService
         double strategyScore;
         if (proteinGoal.HasValue || carbGoal.HasValue || fatGoal.HasValue)
         {
-            // Goals are minimums — reaching or exceeding is good, not penalized.
-            // Score = how close to meeting the goal (capped at 1.0 = goal met or exceeded).
-            double protScore = proteinGoal > 0 ? Math.Min(dish.Protein / proteinGoal.Value, 1.0) : 0.5;
-            double carbScore = carbGoal > 0 ? Math.Min(dish.Carb / carbGoal.Value, 1.0) : 0.5;
-            double fatScore = fatGoal > 0 ? Math.Min(dish.Fat / fatGoal.Value, 1.0) : 0.5;
-            // No penalty for exceeding targets — they are minimums
-            strategyScore = protScore * 0.5 + carbScore * 0.3 + fatScore * 0.2;
+            // Assign weights by priority order: 0.5, 0.3, 0.2
+            var weights = new[] { 0.5, 0.3, 0.2 };
+            var scores = new Dictionary<string, double>
+            {
+                ["p"] = proteinGoal > 0 ? Math.Min(dish.Protein / proteinGoal.Value, 1.0) : 0.5,
+                ["c"] = carbGoal > 0 ? Math.Min(dish.Carb / carbGoal.Value, 1.0) : 0.5,
+                ["f"] = fatGoal > 0 ? Math.Min(dish.Fat / fatGoal.Value, 1.0) : 0.5,
+            };
+
+            strategyScore = 0;
+            for (int i = 0; i < macroPriority.Count && i < weights.Length; i++)
+            {
+                if (scores.TryGetValue(macroPriority[i], out var s))
+                    strategyScore += s * weights[i];
+            }
         }
         else
         {

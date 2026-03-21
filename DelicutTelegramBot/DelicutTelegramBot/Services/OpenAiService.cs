@@ -100,10 +100,25 @@ public class OpenAiService : IOpenAiService
         var macroGoals = "";
         if (request.ProteinGoalGrams.HasValue || request.CarbGoalGrams.HasValue || request.FatGoalGrams.HasValue)
         {
+            var priority = request.MacroPriority;
+            var goalMap = new Dictionary<string, string>
+            {
+                ["p"] = request.ProteinGoalGrams.HasValue ? $"Protein: {request.ProteinGoalGrams}g" : "",
+                ["c"] = request.CarbGoalGrams.HasValue ? $"Carbs: {request.CarbGoalGrams}g" : "",
+                ["f"] = request.FatGoalGrams.HasValue ? $"Fat: {request.FatGoalGrams}g" : ""
+            };
+
             var goals = new List<string>();
-            if (request.ProteinGoalGrams.HasValue) goals.Add($"Protein: {request.ProteinGoalGrams}g (HIGHEST priority)");
-            if (request.CarbGoalGrams.HasValue) goals.Add($"Carbs: {request.CarbGoalGrams}g (priority #2)");
-            if (request.FatGoalGrams.HasValue) goals.Add($"Fat: {request.FatGoalGrams}g (priority #3)");
+            for (int i = 0; i < priority.Count; i++)
+            {
+                var key = priority[i];
+                if (goalMap.TryGetValue(key, out var label) && label.Length > 0)
+                    goals.Add($"{label} (priority #{i + 1})");
+            }
+
+            var nameMap = new Dictionary<string, string> { ["p"] = "protein", ["c"] = "carbs", ["f"] = "fat" };
+            var first = nameMap.GetValueOrDefault(priority.FirstOrDefault() ?? "p", "protein");
+            var second = nameMap.GetValueOrDefault(priority.ElementAtOrDefault(1) ?? "c", "carbs");
 
             macroGoals = $"""
 
@@ -111,11 +126,9 @@ public class OpenAiService : IOpenAiService
             {string.Join("\n", goals)}
 
             IMPORTANT: Goals are minimum thresholds. Meeting or EXCEEDING a goal is good — never penalize going over.
-            Priority logic: First, reach the protein minimum across all meals for the day.
-            Once protein minimum is met, optimize carbs toward its minimum.
-            Once both are met, optimize fat. Do NOT sacrifice a higher-priority macro for a lower one.
-            For example: if picking dish A gives 210g protein + 150g carbs vs dish B gives 180g protein + 200g carbs,
-            pick A because reaching the protein minimum is higher priority.
+            Priority logic: First, reach the {first} minimum across all meals for the day.
+            Once {first} minimum is met, optimize {second} toward its minimum.
+            Then optimize the remaining macro. Do NOT sacrifice a higher-priority macro for a lower one.
             """;
         }
 
