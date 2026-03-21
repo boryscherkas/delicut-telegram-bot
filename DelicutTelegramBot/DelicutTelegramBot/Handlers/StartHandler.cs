@@ -31,9 +31,51 @@ public class StartHandler
 
     public async Task HandleCommandAsync(Message message, CancellationToken ct)
     {
-        var state = _stateManager.GetOrCreate(message.From!.Id);
-        state.CurrentFlow = ConversationFlow.Auth_WaitingEmail;
-        state.LastActivity = DateTime.UtcNow;
+        // Check if user is already authenticated
+        var existingUser = await _userService.GetByTelegramIdAsync(message.From!.Id);
+        if (existingUser is not null && !string.IsNullOrEmpty(existingUser.DelicutToken))
+        {
+            await _bot.SendMessage(message.Chat.Id,
+                $"Welcome back! You're connected as {existingUser.DelicutEmail}.\n" +
+                "Use /select to pick meals, /settings to change preferences.\n\n" +
+                "To re-authenticate with a different account, use /settings and tap Re-authenticate.",
+                cancellationToken: ct);
+            return;
+        }
+
+        // If we have the email but no token (e.g., token expired), skip to OTP
+        if (existingUser is not null && !string.IsNullOrEmpty(existingUser.DelicutEmail))
+        {
+            var state = _stateManager.GetOrCreate(message.From.Id);
+            state.FlowData["email"] = existingUser.DelicutEmail;
+
+            try
+            {
+                await _delicutApi.RequestOtpAsync(existingUser.DelicutEmail);
+                state.CurrentFlow = ConversationFlow.Auth_WaitingOtp;
+                state.FlowData["otp_attempts"] = 0;
+                state.LastActivity = DateTime.UtcNow;
+
+                await _bot.SendMessage(message.Chat.Id,
+                    $"Welcome back! OTP sent to {existingUser.DelicutEmail}. Enter the code:",
+                    cancellationToken: ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to request OTP for returning user");
+                state.CurrentFlow = ConversationFlow.Auth_WaitingEmail;
+                state.LastActivity = DateTime.UtcNow;
+                await _bot.SendMessage(message.Chat.Id,
+                    "Welcome to Delicut Bot! Please enter your Delicut email:",
+                    cancellationToken: ct);
+            }
+            return;
+        }
+
+        // New user — ask for email
+        var newState = _stateManager.GetOrCreate(message.From.Id);
+        newState.CurrentFlow = ConversationFlow.Auth_WaitingEmail;
+        newState.LastActivity = DateTime.UtcNow;
 
         await _bot.SendMessage(message.Chat.Id,
             "Welcome to Delicut Bot! Please enter your Delicut email:",
