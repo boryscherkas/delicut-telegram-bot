@@ -158,29 +158,51 @@ public class SelectWeekHandler
                 lines.Add($"  {emoji} {dish.SlotIndex + 1}. {dish.DishName} ({dish.ProteinOption}) \u2014 {dish.Kcal:F0} kcal | P:{dish.Protein:F0} C:{dish.Carb:F0} F:{dish.Fat:F0}");
             }
 
-            var totalLine = $"  Total: {day.TotalKcal:F0} kcal | P:{day.TotalProtein:F0} C:{day.TotalCarb:F0} F:{day.TotalFat:F0}";
+            // Show original (auto-selected) vs proposed comparison
+            if (day.OriginalKcal > 0)
+            {
+                lines.Add($"  Was:  {day.OriginalKcal:F0} kcal | P:{day.OriginalProtein:F0} C:{day.OriginalCarb:F0} F:{day.OriginalFat:F0}");
+                lines.Add($"  Now:  {day.TotalKcal:F0} kcal | P:{day.TotalProtein:F0} C:{day.TotalCarb:F0} F:{day.TotalFat:F0}");
+                var kDiff = day.TotalKcal - day.OriginalKcal;
+                var pDayDiff = day.TotalProtein - day.OriginalProtein;
+                var cDayDiff = day.TotalCarb - day.OriginalCarb;
+                var fDayDiff = day.TotalFat - day.OriginalFat;
+                lines.Add($"  Diff: {Diff(kDiff)} kcal | {Diff(pDayDiff)}P {Diff(cDayDiff)}C {Diff(fDayDiff)}F");
+            }
+            else
+            {
+                lines.Add($"  Total: {day.TotalKcal:F0} kcal | P:{day.TotalProtein:F0} C:{day.TotalCarb:F0} F:{day.TotalFat:F0}");
+            }
             if (hasGoals)
             {
                 var pDiff = day.TotalProtein - (proteinGoal ?? 0);
                 var cDiff = day.TotalCarb - (carbGoal ?? 0);
                 var fDiff = day.TotalFat - (fatGoal ?? 0);
-                totalLine += $"\n  vs Goal: {Diff(pDiff)}P {Diff(cDiff)}C {Diff(fDiff)}F";
+                lines.Add($"  vs Goal: {Diff(pDiff)}P {Diff(cDiff)}C {Diff(fDiff)}F");
             }
-            lines.Add(totalLine);
             lines.Add("");
         }
 
         // Week summary
         if (proposal.Days.Count > 0)
         {
+            var hasOriginal = proposal.Days.Any(d => d.OriginalKcal > 0);
+            if (hasOriginal)
+            {
+                var origAvgP = proposal.Days.Average(d => d.OriginalProtein);
+                var origAvgC = proposal.Days.Average(d => d.OriginalCarb);
+                var origAvgF = proposal.Days.Average(d => d.OriginalFat);
+                var origAvgK = proposal.Days.Average(d => d.OriginalKcal);
+                lines.Add($"Week avg WAS: {origAvgK:F0} kcal | P:{origAvgP:F0} C:{origAvgC:F0} F:{origAvgF:F0}");
+            }
             var avgKcal = proposal.Days.Average(d => d.TotalKcal);
             var avgP = proposal.Days.Average(d => d.TotalProtein);
             var avgC = proposal.Days.Average(d => d.TotalCarb);
             var avgF = proposal.Days.Average(d => d.TotalFat);
-            lines.Add($"Week avg: {avgKcal:F0} kcal/day | P:{avgP:F0} C:{avgC:F0} F:{avgF:F0}");
+            lines.Add($"Week avg NOW: {avgKcal:F0} kcal | P:{avgP:F0} C:{avgC:F0} F:{avgF:F0}");
             if (hasGoals)
             {
-                lines.Add($"vs Goal:  {Diff(avgP - (proteinGoal ?? 0))}P {Diff(avgC - (carbGoal ?? 0))}C {Diff(avgF - (fatGoal ?? 0))}F");
+                lines.Add($"vs Goal:      {Diff(avgP - (proteinGoal ?? 0))}P {Diff(avgC - (carbGoal ?? 0))}C {Diff(avgF - (fatGoal ?? 0))}F");
             }
         }
 

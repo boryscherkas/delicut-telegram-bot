@@ -185,6 +185,7 @@ public class DelicutApiService : IDelicutApiService
                         // Extract unique_id and current dish from selected_meal
                         string uniqueId = "", currentDishId = "", currentDishName = "",
                                currentProteinOption = "";
+                        double curKcal = 0, curProtein = 0, curCarb = 0, curFat = 0;
                         bool isAutoSelect = false;
 
                         if (item.TryGetProperty("selected_meal", out var meal))
@@ -198,11 +199,19 @@ public class DelicutApiService : IDelicutApiService
                             isAutoSelect = meal.TryGetProperty("is_auto_select", out var auto)
                                 && auto.GetBoolean();
 
-                            // Get protein option from variants
-                            if (meal.TryGetProperty("variants", out var variants) &&
-                                variants.TryGetProperty("protein_option", out var po))
+                            // Get protein option and macros from variants
+                            if (meal.TryGetProperty("variants", out var variants))
                             {
-                                currentProteinOption = po.GetString() ?? "";
+                                if (variants.TryGetProperty("protein_option", out var po))
+                                    currentProteinOption = po.GetString() ?? "";
+                                if (variants.TryGetProperty("kcal", out var kcalProp))
+                                    curKcal = kcalProp.GetDouble();
+                                if (variants.TryGetProperty("protein", out var protProp))
+                                    curProtein = protProp.GetDouble();
+                                if (variants.TryGetProperty("carb", out var carbProp))
+                                    curCarb = carbProp.GetDouble();
+                                if (variants.TryGetProperty("fat", out var fatProp))
+                                    curFat = fatProp.GetDouble();
                             }
                         }
 
@@ -216,6 +225,10 @@ public class DelicutApiService : IDelicutApiService
                             CurrentDishId = currentDishId,
                             CurrentDishName = currentDishName,
                             CurrentProteinOption = currentProteinOption,
+                            CurrentKcal = curKcal,
+                            CurrentProtein = curProtein,
+                            CurrentCarb = curCarb,
+                            CurrentFat = curFat,
                             IsAutoSelect = isAutoSelect
                         });
                     }

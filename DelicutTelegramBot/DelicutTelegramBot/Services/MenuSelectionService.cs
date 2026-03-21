@@ -239,11 +239,16 @@ public class MenuSelectionService : IMenuSelectionService
             // Update week context with this day's selections
             weekContext[day.Date.ToString("yyyy-MM-dd")] = dayDishes.Select(d => d.DishName).ToList();
 
+            // Capture original (Delicut auto-selected) totals from delivery slots
             dayProposals.Add(new DayProposal
             {
                 Date = day.Date,
                 DayOfWeek = day.DayOfWeek,
-                Dishes = dayDishes
+                Dishes = dayDishes,
+                OriginalKcal = day.Slots.Sum(s => s.CurrentKcal),
+                OriginalProtein = day.Slots.Sum(s => s.CurrentProtein),
+                OriginalCarb = day.Slots.Sum(s => s.CurrentCarb),
+                OriginalFat = day.Slots.Sum(s => s.CurrentFat)
             });
         }
 

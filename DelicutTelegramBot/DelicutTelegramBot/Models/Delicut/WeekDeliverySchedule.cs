@@ -29,5 +29,9 @@ public class DeliverySlot
     public string? CurrentDishId { get; set; }
     public string? CurrentDishName { get; set; }
     public string? CurrentProteinOption { get; set; }
+    public double CurrentKcal { get; set; }
+    public double CurrentProtein { get; set; }
+    public double CurrentCarb { get; set; }
+    public double CurrentFat { get; set; }
     public bool IsAutoSelect { get; set; }
 }

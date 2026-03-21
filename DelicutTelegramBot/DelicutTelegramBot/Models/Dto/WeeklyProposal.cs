@@ -15,4 +15,10 @@ public class DayProposal
     public double TotalProtein => Dishes.Sum(d => d.Protein);
     public double TotalCarb => Dishes.Sum(d => d.Carb);
     public double TotalFat => Dishes.Sum(d => d.Fat);
+
+    // Original (Delicut auto-selected) totals for comparison
+    public double OriginalKcal { get; set; }
+    public double OriginalProtein { get; set; }
+    public double OriginalCarb { get; set; }
+    public double OriginalFat { get; set; }
 }
