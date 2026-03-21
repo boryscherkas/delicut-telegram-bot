@@ -374,7 +374,16 @@ public class SettingsHandler
 
         if (editMessageId.HasValue)
         {
-            await _bot.EditMessageReplyMarkup(chatId, editMessageId.Value, keyboard, cancellationToken: ct);
+            try
+            {
+                await _bot.EditMessageText(chatId, editMessageId.Value, "Settings:",
+                    replyMarkup: keyboard, cancellationToken: ct);
+            }
+            catch (Telegram.Bot.Exceptions.ApiRequestException ex)
+                when (ex.Message.Contains("message is not modified"))
+            {
+                // Ignore — content didn't change visually
+            }
         }
         else
         {
