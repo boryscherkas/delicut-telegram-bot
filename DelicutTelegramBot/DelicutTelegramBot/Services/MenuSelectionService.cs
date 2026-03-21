@@ -77,6 +77,16 @@ public class MenuSelectionService : IMenuSelectionService
             previousChoices = await _historyService.GetPreviousChoiceNamesAsync(userId);
         }
 
+        _logger.LogInformation(
+            "Selection settings for user {UserId}: Strategy={Strategy}, " +
+            "MacroGoals=P:{ProteinGoal}g C:{CarbGoal}g F:{FatGoal}g, Priority={Priority}, " +
+            "PreferredProtein={PreferredProtein}, Favourites=[{Favourites}]",
+            userId, user.Settings?.Strategy,
+            user.Settings?.ProteinGoalGrams, user.Settings?.CarbGoalGrams, user.Settings?.FatGoalGrams,
+            user.Settings?.MacroPriority,
+            user.Settings?.PreferredProteinVariant,
+            string.Join(", ", user.Settings?.FavouriteDishNames ?? []));
+
         var state = _stateManager.GetOrCreate(user.TelegramUserId);
         var dayProposals = new List<DayProposal>();
         var lockedDays = new List<DateOnly>();
@@ -173,6 +183,9 @@ public class MenuSelectionService : IMenuSelectionService
                     MinFavouritesPerWeek = user.Settings?.MinFavouritesPerWeek ?? 0
                 };
 
+                _logger.LogInformation("AI request for {Date} {Category}: {DishCount} dishes available, strategy={Strategy}",
+                    day.Date, category, dishSummaries.Count, request.Strategy);
+
                 // Try AI, fall back if null
                 AiSelectionResult result;
                 try
@@ -181,6 +194,8 @@ public class MenuSelectionService : IMenuSelectionService
                     if (aiResult != null)
                     {
                         result = aiResult;
+                        _logger.LogInformation("AI selected for {Date}: [{Picks}]",
+                            day.Date, string.Join(", ", result.Picks.Select(p => $"{p.DishId}({p.ProteinOption})")));
                     }
                     else
                     {
