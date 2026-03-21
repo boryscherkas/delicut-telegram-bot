@@ -1,0 +1,17 @@
+app = "delicut-telegram-bot"
+primary_region = "sin"  # Singapore — closest to Dubai
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  DOTNET_ENVIRONMENT = "Production"
+
+# No HTTP service needed — bot uses polling, not webhooks.
+# But we expose a health check port so Fly can monitor it.
+# The app doesn't serve HTTP; Fly will keep it running based on machine config.
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+  cpus = 1

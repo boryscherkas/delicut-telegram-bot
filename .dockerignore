@@ -1,0 +1,14 @@
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+**/.idea/
+**/node_modules/
+.git/
+docs/
+*.md
+*.user
+.env
+appsettings.Development.json
+appsettings.*.json
+!**/appsettings.json

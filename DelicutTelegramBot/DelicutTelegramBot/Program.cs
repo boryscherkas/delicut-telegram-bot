@@ -14,6 +14,22 @@ var builder = Host.CreateApplicationBuilder(args);
 // Always load user secrets (not just in Development)
 builder.Configuration.AddUserSecrets(typeof(Program).Assembly, optional: true);
 
+// Support flat env var names for Fly.io secrets (fly secrets set TELEGRAM_BOT_TOKEN=xxx)
+var flatMappings = new Dictionary<string, string>
+{
+    ["TELEGRAM_BOT_TOKEN"] = "Telegram:BotToken",
+    ["SUPABASE_CONNECTION_STRING"] = "Supabase:ConnectionString",
+    ["OPENAI_API_KEY"] = "OpenAi:ApiKey",
+    ["OPENAI_MODEL"] = "OpenAi:Model",
+    ["DELICUT_BASE_URL"] = "Delicut:BaseUrl",
+};
+foreach (var (envVar, configKey) in flatMappings)
+{
+    var value = Environment.GetEnvironmentVariable(envVar);
+    if (!string.IsNullOrEmpty(value))
+        builder.Configuration[configKey] = value;
+}
+
 builder.Services.AddDelicutBot(builder.Configuration);
 
 var host = builder.Build();
