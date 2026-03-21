@@ -10,6 +10,6 @@ public interface IDelicutApiService
     Task<LoginResponse> VerifyOtpAsync(string email, string otp);
     Task<Subscription> GetSubscriptionDetailsAsync(string token);
     Task<List<Dish>> FetchMenuAsync(string token, string deliveryId, string mealCategory, string uniqueId);
-    Task<WeekDeliverySchedule> GetDeliveryScheduleAsync(string token, string subscriptionId);
+    Task<WeekDeliverySchedule> GetDeliveryScheduleAsync(string token, string customerId);
     Task SubmitDishSelectionAsync(string token, string customerId, string deliveryId, string uniqueId, List<DishSubmission> selections);
 }

@@ -60,7 +60,7 @@ public class MenuSelectionService : IMenuSelectionService
             _delicutApi.GetSubscriptionDetailsAsync(user.DelicutToken!));
 
         var schedule = await CallApiSafeAsync(() =>
-            _delicutApi.GetDeliveryScheduleAsync(user.DelicutToken!, user.DelicutSubscriptionId!));
+            _delicutApi.GetDeliveryScheduleAsync(user.DelicutToken!, user.DelicutCustomerId!));
 
         var mealSlots = subscription.MealTypes
             .Select(mt => new MealSlot { Category = mt.MealCategory.ToLower(), Count = mt.Qty })
@@ -87,11 +87,20 @@ public class MenuSelectionService : IMenuSelectionService
 
             var dayDishes = new List<ProposedDish>();
 
+            // Group slots by meal category to fetch menu once per category
+            var slotsByCategory = day.Slots
+                .GroupBy(s => s.MealCategory.ToLower())
+                .ToDictionary(g => g.Key, g => g.ToList());
+
             foreach (var mealSlot in mealSlots)
             {
                 var category = mealSlot.Category;
                 var mealTypeInfo = subscription.MealTypes
                     .FirstOrDefault(mt => mt.MealCategory.Equals(category, StringComparison.OrdinalIgnoreCase));
+
+                // Get the first slot's UniqueId for menu fetch (all slots in same category share the same menu)
+                var firstSlot = slotsByCategory.GetValueOrDefault(category)?.FirstOrDefault();
+                var uniqueIdForFetch = firstSlot?.UniqueId ?? string.Empty;
 
                 // Fetch menu for this day + category
                 List<Dish> menu;
@@ -99,7 +108,7 @@ public class MenuSelectionService : IMenuSelectionService
                 try
                 {
                     menu = await CallApiSafeAsync(() =>
-                        _delicutApi.FetchMenuAsync(user.DelicutToken!, day.DeliveryId, category, day.UniqueId));
+                        _delicutApi.FetchMenuAsync(user.DelicutToken!, day.DeliveryId, category, uniqueIdForFetch));
                     state.FlowData[cacheKey] = menu;
                 }
                 catch (DelicutAuthExpiredException)
@@ -165,13 +174,18 @@ public class MenuSelectionService : IMenuSelectionService
                     var variant = dish?.Variants.FirstOrDefault(v =>
                         v.ProteinOption.Equals(pick.ProteinOption, StringComparison.OrdinalIgnoreCase));
 
+                    // Find the matching slot's UniqueId for this pick
+                    var slotsForCategory = slotsByCategory.GetValueOrDefault(category);
+                    var matchingSlot = slotsForCategory?.ElementAtOrDefault(pick.SlotIndex);
+                    var slotUniqueId = matchingSlot?.UniqueId ?? firstSlot?.UniqueId ?? string.Empty;
+
                     var pending = new PendingSelection
                     {
                         Id = Guid.NewGuid(),
                         UserId = userId,
                         DeliveryDate = day.Date,
                         DeliveryId = day.DeliveryId,
-                        UniqueId = day.UniqueId,
+                        UniqueId = slotUniqueId,
                         MealCategory = pick.MealCategory,
                         SlotIndex = pick.SlotIndex,
                         DishId = pick.DishId,

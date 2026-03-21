@@ -152,38 +152,107 @@ public class DelicutApiService : IDelicutApiService
 
     // --- NOT YET REVERSE-ENGINEERED ---
 
-    public async Task<WeekDeliverySchedule> GetDeliveryScheduleAsync(string token, string subscriptionId)
+    public async Task<WeekDeliverySchedule> GetDeliveryScheduleAsync(string token, string customerId)
     {
         using var client = CreateClient(token);
-        var response = await client.GetAsync($"{_baseUrl}/v1/delivery/list");
+
+        // Use week-wise endpoint — returns delivery_items with unique_ids per slot
+        var payload = new { customer_id = customerId, week = "current_week" };
+        var response = await client.PostAsJsonAsync($"{_baseUrl}/v1/delivery/week-wise", payload);
         await EnsureSuccess(response);
 
-        var result = await response.Content.ReadFromJsonAsync<DelicutApiResponse<List<DelicutDeliveryItem>>>(JsonOptions);
-        var deliveries = result?.Data ?? [];
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
 
-        var schedule = new WeekDeliverySchedule
+        var schedule = new WeekDeliverySchedule();
+
+        if (doc.RootElement.TryGetProperty("data", out var dataArray) &&
+            dataArray.ValueKind == JsonValueKind.Array)
         {
-            Days = deliveries
-                .Where(d => d.Status == "Pending" && !d.NotDeliverable && !d.IsDeliveryFreezed)
-                .Select(d =>
-                {
-                    var date = DateOnly.FromDateTime(d.DeliveryDate);
-                    return new DeliveryDay
-                    {
-                        Date = date,
-                        DayOfWeek = date.DayOfWeek.ToString().ToLower(),
-                        DeliveryId = d.Id,
-                        // unique_id is not in this response — needs to be discovered
-                        // from another endpoint or passed separately
-                        UniqueId = string.Empty,
-                        MealCategories = [], // populated from subscription MealTypes
-                        IsLocked = Helpers.CutoffHelper.IsLocked(date)
-                    };
-                })
-                .OrderBy(d => d.Date)
-                .ToList()
-        };
+            foreach (var dayElement in dataArray.EnumerateArray())
+            {
+                var deliveryId = dayElement.GetProperty("_id").GetString() ?? "";
+                var deliveryDateStr = dayElement.GetProperty("delivery_date").GetString() ?? "";
+                var status = dayElement.GetProperty("status").GetString() ?? "";
+                var notDeliverable = dayElement.TryGetProperty("not_deliverable", out var nd) && nd.GetBoolean();
+                var isFrozen = dayElement.TryGetProperty("is_delivery_freezed", out var fr) && fr.GetBoolean();
 
+                if (status != "Pending" || notDeliverable || isFrozen)
+                    continue;
+
+                var deliveryDate = DateTime.Parse(deliveryDateStr);
+                var date = DateOnly.FromDateTime(deliveryDate);
+                var slots = new List<DeliverySlot>();
+                var mealCategories = new HashSet<string>();
+
+                if (dayElement.TryGetProperty("delivery_item", out var items) &&
+                    items.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in items.EnumerateArray())
+                    {
+                        var mealCategory = item.TryGetProperty("meal_category", out var mc)
+                            ? mc.GetString() ?? "" : "";
+                        var mealType = item.TryGetProperty("meal_type", out var mt)
+                            ? mt.GetString() ?? "" : "";
+                        var kcalRange = item.TryGetProperty("kcal_range", out var kr)
+                            ? kr.GetString() ?? "" : "";
+                        var proteinCategory = item.TryGetProperty("protein_category", out var pc)
+                            ? pc.GetString() ?? "" : "";
+
+                        mealCategories.Add(mealCategory);
+
+                        // Extract unique_id and current dish from selected_meal
+                        string uniqueId = "", currentDishId = "", currentDishName = "",
+                               currentProteinOption = "";
+                        bool isAutoSelect = false;
+
+                        if (item.TryGetProperty("selected_meal", out var meal))
+                        {
+                            uniqueId = meal.TryGetProperty("unique_id", out var uid)
+                                ? uid.GetString() ?? "" : "";
+                            currentDishId = meal.TryGetProperty("recipe_id", out var rid)
+                                ? rid.GetString() ?? "" : "";
+                            currentDishName = meal.TryGetProperty("dish_name", out var dn)
+                                ? dn.GetString() ?? "" : "";
+                            isAutoSelect = meal.TryGetProperty("is_auto_select", out var auto)
+                                && auto.GetBoolean();
+
+                            // Get protein option from variants
+                            if (meal.TryGetProperty("variants", out var variants) &&
+                                variants.TryGetProperty("protein_option", out var po))
+                            {
+                                currentProteinOption = po.GetString() ?? "";
+                            }
+                        }
+
+                        slots.Add(new DeliverySlot
+                        {
+                            UniqueId = uniqueId,
+                            MealCategory = mealCategory,
+                            MealType = mealType,
+                            KcalRange = kcalRange,
+                            ProteinCategory = proteinCategory,
+                            CurrentDishId = currentDishId,
+                            CurrentDishName = currentDishName,
+                            CurrentProteinOption = currentProteinOption,
+                            IsAutoSelect = isAutoSelect
+                        });
+                    }
+                }
+
+                schedule.Days.Add(new DeliveryDay
+                {
+                    Date = date,
+                    DayOfWeek = date.DayOfWeek.ToString().ToLower(),
+                    DeliveryId = deliveryId,
+                    Slots = slots,
+                    MealCategories = mealCategories.ToList(),
+                    IsLocked = Helpers.CutoffHelper.IsLocked(date)
+                });
+            }
+        }
+
+        schedule.Days = schedule.Days.OrderBy(d => d.Date).ToList();
         return schedule;
     }
 

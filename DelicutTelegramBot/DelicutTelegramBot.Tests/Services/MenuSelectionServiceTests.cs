@@ -91,7 +91,34 @@ public class MenuSelectionServiceTests : IDisposable
         Date = date,
         DayOfWeek = date.DayOfWeek.ToString(),
         DeliveryId = $"delivery-{date:yyyy-MM-dd}",
-        UniqueId = $"unique-{date:yyyy-MM-dd}",
+        Slots =
+        [
+            new DeliverySlot
+            {
+                UniqueId = $"unique-{date:yyyy-MM-dd}-0",
+                MealCategory = "meal",
+                MealType = "lunch",
+                KcalRange = "Extra_large",
+                ProteinCategory = "low"
+            },
+            new DeliverySlot
+            {
+                UniqueId = $"unique-{date:yyyy-MM-dd}-1",
+                MealCategory = "meal",
+                MealType = "lunch",
+                KcalRange = "Extra_large",
+                ProteinCategory = "low"
+            },
+            new DeliverySlot
+            {
+                UniqueId = $"unique-{date:yyyy-MM-dd}-2",
+                MealCategory = "meal",
+                MealType = "lunch",
+                KcalRange = "Extra_large",
+                ProteinCategory = "low"
+            }
+        ],
+        MealCategories = ["meal"],
         IsLocked = isLocked
     };
 
