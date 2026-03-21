@@ -249,7 +249,7 @@ public interface IDelicutApiService
 {
     Task<OtpResponse> RequestOtpAsync(string email);
     Task<LoginResponse> VerifyOtpAsync(string email, string otp);
-    Task<SubscriptionDetails> GetSubscriptionDetailsAsync(string token);
+    Task<Subscription> GetSubscriptionDetailsAsync(string token);
     Task<List<Dish>> FetchMenuAsync(string token, string deliveryId,
                                      string mealCategory, string uniqueId);
     Task<WeekDeliverySchedule> GetDeliveryScheduleAsync(string token,
@@ -372,6 +372,33 @@ public class PastDishSelection
     public string DishName { get; set; }
     public string ProteinOption { get; set; }
     public DateOnly Date { get; set; }
+}
+
+public class WeekDeliverySchedule
+{
+    public List<DeliveryDay> Days { get; set; }
+}
+
+public class DeliveryDay
+{
+    public DateOnly Date { get; set; }
+    public string DayOfWeek { get; set; }       // "monday", "tuesday", etc.
+    public string DeliveryId { get; set; }       // needed for FetchMenuAsync
+    public string UniqueId { get; set; }         // needed for FetchMenuAsync
+    public List<string> MealCategories { get; set; }  // ["lunch", "breakfast"] per user
+    public bool IsLocked { get; set; }           // computed via cutoff logic
+}
+
+public class OtpResponse
+{
+    public bool ShowOtp { get; set; }
+    public string UserRegisterFlag { get; set; }  // "user_verified"
+}
+
+public class LoginResponse
+{
+    public string Token { get; set; }  // JWT from cookies
+    public string CustomerId { get; set; }
 }
 ```
 
