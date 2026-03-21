@@ -107,12 +107,24 @@ public class MenuSelectionService : IMenuSelectionService
                 var firstSlot = slotsByCategory.GetValueOrDefault(category)?.FirstOrDefault();
                 var uniqueIdForFetch = firstSlot?.UniqueId ?? string.Empty;
 
+                if (string.IsNullOrEmpty(uniqueIdForFetch))
+                {
+                    _logger.LogWarning(
+                        "No UniqueId found for {Date} category '{Category}'. " +
+                        "Slots: {SlotCount}, categories in slots: [{SlotCategories}]",
+                        day.Date, category, day.Slots.Count,
+                        string.Join(", ", day.Slots.Select(s => s.MealCategory)));
+                    continue;
+                }
+
                 // Fetch menu for this day + category
                 List<Dish> menu;
                 var cacheKey = $"menu:{day.Date}:{category}";
                 try
                 {
                     // Use ApiCategory (e.g. "lunch") for the API, not Category (e.g. "meal")
+                    _logger.LogDebug("Fetching menu: deliveryId={DeliveryId}, apiCategory={ApiCategory}, uniqueId={UniqueId}",
+                        day.DeliveryId, mealSlot.ApiCategory, uniqueIdForFetch);
                     menu = await CallApiSafeAsync(() =>
                         _delicutApi.FetchMenuAsync(user.DelicutToken!, day.DeliveryId, mealSlot.ApiCategory, uniqueIdForFetch));
                     state.FlowData[cacheKey] = menu;

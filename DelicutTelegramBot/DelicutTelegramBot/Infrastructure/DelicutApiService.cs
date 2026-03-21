@@ -137,9 +137,8 @@ public class DelicutApiService : IDelicutApiService
     {
         using var client = CreateClient(token);
 
-        // Use week-wise endpoint — returns delivery_items with unique_ids per slot
-        var payload = new { customer_id = customerId, week = "current_week" };
-        var response = await client.PostAsJsonAsync($"{_baseUrl}/v1/delivery/week-wise", payload);
+        var response = await PostJsonRawAsync(client, $"{_baseUrl}/v1/delivery/week-wise",
+            JsonSerializer.Serialize(new { customer_id = customerId, week = "current_week" }));
         await EnsureSuccess(response);
 
         var json = await response.Content.ReadAsStringAsync();

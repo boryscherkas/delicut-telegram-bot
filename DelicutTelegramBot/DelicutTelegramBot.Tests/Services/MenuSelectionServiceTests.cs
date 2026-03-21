@@ -64,7 +64,7 @@ public class MenuSelectionServiceTests : IDisposable
         }
     };
 
-    private static Subscription MakeSubscription(string mealCategory = "lunch") => new()
+    private static Subscription MakeSubscription(string mealCategory = "meal", string mealType = "lunch") => new()
     {
         Id = "sub-123",
         MealTypes =
@@ -72,6 +72,7 @@ public class MenuSelectionServiceTests : IDisposable
             new MealTypeInfo
             {
                 MealCategory = mealCategory,
+                MealType = mealType,
                 Qty = 1,
                 KcalRange = "extra_large",
                 ProteinCategory = "chicken"
