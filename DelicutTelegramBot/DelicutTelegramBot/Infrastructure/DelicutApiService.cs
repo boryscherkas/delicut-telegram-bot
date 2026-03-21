@@ -167,12 +167,6 @@ public class DelicutApiService : IDelicutApiService
         }
     }
 
-    public Task<List<PastDishSelection>> GetPastSelectionsAsync(string token, string subscriptionId)
-    {
-        // TODO: Reverse-engineer the past selections endpoint.
-        throw new NotImplementedException(
-            "Past selections endpoint not yet reverse-engineered.");
-    }
 
     // --- HELPERS ---
 
