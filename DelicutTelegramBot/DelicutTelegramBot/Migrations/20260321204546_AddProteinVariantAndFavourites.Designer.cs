@@ -13,7 +13,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace DelicutTelegramBot.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260321204357_AddProteinVariantAndFavourites")]
+    [Migration("20260321204546_AddProteinVariantAndFavourites")]
     partial class AddProteinVariantAndFavourites
     {
         /// <inheritdoc />
@@ -191,7 +191,9 @@ namespace DelicutTelegramBot.Migrations
 
                     b.PrimitiveCollection<List<string>>("FavouriteDishNames")
                         .IsRequired()
-                        .HasColumnType("text[]");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text[]")
+                        .HasDefaultValueSql("'{}'::text[]");
 
                     b.Property<int>("MinFavouritesPerWeek")
                         .HasColumnType("integer");
@@ -207,7 +209,9 @@ namespace DelicutTelegramBot.Migrations
 
                     b.PrimitiveCollection<List<string>>("StopWords")
                         .IsRequired()
-                        .HasColumnType("text[]");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text[]")
+                        .HasDefaultValueSql("'{}'::text[]");
 
                     b.Property<string>("Strategy")
                         .IsRequired()

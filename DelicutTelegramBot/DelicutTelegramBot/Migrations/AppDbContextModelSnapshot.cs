@@ -188,7 +188,9 @@ namespace DelicutTelegramBot.Migrations
 
                     b.PrimitiveCollection<List<string>>("FavouriteDishNames")
                         .IsRequired()
-                        .HasColumnType("text[]");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text[]")
+                        .HasDefaultValueSql("'{}'::text[]");
 
                     b.Property<int>("MinFavouritesPerWeek")
                         .HasColumnType("integer");
@@ -204,7 +206,9 @@ namespace DelicutTelegramBot.Migrations
 
                     b.PrimitiveCollection<List<string>>("StopWords")
                         .IsRequired()
-                        .HasColumnType("text[]");
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text[]")
+                        .HasDefaultValueSql("'{}'::text[]");
 
                     b.Property<string>("Strategy")
                         .IsRequired()

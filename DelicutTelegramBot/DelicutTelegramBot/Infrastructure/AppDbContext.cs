@@ -30,6 +30,8 @@ public class AppDbContext : DbContext
         {
             e.HasKey(s => s.Id);
             e.Property(s => s.Strategy).HasConversion<string>();
+            e.Property(s => s.StopWords).HasDefaultValueSql("'{}'::text[]");
+            e.Property(s => s.FavouriteDishNames).HasDefaultValueSql("'{}'::text[]");
         });
 
         modelBuilder.Entity<SelectionHistory>(e =>
