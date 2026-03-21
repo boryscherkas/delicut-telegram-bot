@@ -136,8 +136,9 @@ public class MenuSelectionService : IMenuSelectionService
                     mealTypeInfo?.KcalRange ?? string.Empty,
                     mealTypeInfo?.ProteinCategory ?? string.Empty);
 
-                // Convert to DishSummary (flatten: each dish+variant = one DishSummary)
-                var dishSummaries = FlattenToDishSummaries(filtered, category);
+                // Convert to DishSummary — prefer user's protein variant if set
+                var dishSummaries = FlattenToDishSummaries(filtered, category,
+                    user.Settings?.PreferredProteinVariant);
 
                 // Build AI selection request
                 var request = new AiSelectionRequest
@@ -152,7 +153,10 @@ public class MenuSelectionService : IMenuSelectionService
                     WeekContext = weekContext,
                     ProteinGoalGrams = user.Settings?.ProteinGoalGrams,
                     CarbGoalGrams = user.Settings?.CarbGoalGrams,
-                    FatGoalGrams = user.Settings?.FatGoalGrams
+                    FatGoalGrams = user.Settings?.FatGoalGrams,
+                    PreferredProteinVariant = user.Settings?.PreferredProteinVariant,
+                    FavouriteDishNames = user.Settings?.FavouriteDishNames ?? [],
+                    MinFavouritesPerWeek = user.Settings?.MinFavouritesPerWeek ?? 0
                 };
 
                 // Try AI, fall back if null
@@ -168,14 +172,16 @@ public class MenuSelectionService : IMenuSelectionService
                     {
                         _logger.LogWarning("AI selection returned null for {Date} {Category}, using fallback", day.Date, category);
                         result = _fallbackService.Select(dishSummaries, request.Strategy, request.MealSlots, weekContext,
-                            request.ProteinGoalGrams, request.CarbGoalGrams, request.FatGoalGrams);
+                            request.ProteinGoalGrams, request.CarbGoalGrams, request.FatGoalGrams,
+                            request.FavouriteDishNames, request.MinFavouritesPerWeek);
                     }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "AI selection failed for {Date} {Category}, using fallback", day.Date, category);
                     result = _fallbackService.Select(dishSummaries, request.Strategy, request.MealSlots, weekContext,
-                            request.ProteinGoalGrams, request.CarbGoalGrams, request.FatGoalGrams);
+                            request.ProteinGoalGrams, request.CarbGoalGrams, request.FatGoalGrams,
+                            request.FavouriteDishNames, request.MinFavouritesPerWeek);
                 }
 
                 // Create PendingSelection rows and ProposedDish entries
@@ -403,12 +409,31 @@ public class MenuSelectionService : IMenuSelectionService
         }
     }
 
-    private static List<DishSummary> FlattenToDishSummaries(List<Dish> dishes, string mealCategory)
+    /// <summary>
+    /// Flattens dishes to DishSummary. If preferredProtein is set, picks only that variant
+    /// per dish (falls back to first variant if preferred not available).
+    /// Otherwise creates one summary per variant.
+    /// </summary>
+    private static List<DishSummary> FlattenToDishSummaries(
+        List<Dish> dishes, string mealCategory, string? preferredProtein = null)
     {
         var summaries = new List<DishSummary>();
         foreach (var dish in dishes)
         {
-            foreach (var variant in dish.Variants)
+            IEnumerable<DishVariant> variants;
+            if (!string.IsNullOrEmpty(preferredProtein))
+            {
+                // Pick preferred variant if available, otherwise first variant
+                var preferred = dish.Variants.FirstOrDefault(v =>
+                    v.ProteinOption.Equals(preferredProtein, StringComparison.OrdinalIgnoreCase));
+                variants = preferred != null ? [preferred] : dish.Variants.Take(1);
+            }
+            else
+            {
+                variants = dish.Variants;
+            }
+
+            foreach (var variant in variants)
             {
                 summaries.Add(new DishSummary
                 {
@@ -419,8 +444,8 @@ public class MenuSelectionService : IMenuSelectionService
                     Protein = variant.Protein,
                     Carb = variant.Carb,
                     Fat = variant.Fat,
-                    Rating = dish.AvgRating,
-                    TotalRatings = dish.TotalRatings,
+                    Rating = 0, // Not using Delicut API rating
+                    TotalRatings = 0,
                     SpiceLevel = dish.SpiceLevel,
                     ProteinOption = variant.ProteinOption,
                     MealCategory = mealCategory

@@ -12,31 +12,26 @@ public class FallbackSelectionService : IFallbackSelectionService
         Dictionary<string, List<string>> weekContext,
         double? proteinGoal = null,
         double? carbGoal = null,
-        double? fatGoal = null)
+        double? fatGoal = null,
+        List<string>? favouriteDishNames = null,
+        int minFavouritesPerWeek = 0)
     {
-        // Collect used cuisines AND used dish names from other days for variety
-        var usedCuisines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var usedDishNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var favourites = new HashSet<string>(favouriteDishNames ?? [], StringComparer.OrdinalIgnoreCase);
 
-        foreach (var (_, dishNames) in weekContext)
-        {
-            foreach (var name in dishNames)
-                usedDishNames.Add(name);
-        }
-
-        // Get dish names from immediately adjacent days (yesterday/tomorrow in context)
-        // for stronger penalty
-        var adjacentDishNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        // weekContext keys are day names; we penalize all of them but adjacent more
-        // (we don't know which day "this" is relative to context, so treat all as adjacent for safety)
+        // Count how many times favourites already appear in weekContext
+        var favouriteCountInWeek = 0;
         foreach (var (_, dishNames) in weekContext)
         {
             foreach (var name in dishNames)
             {
-                adjacentDishNames.Add(name);
-                // Also extract cuisine from used dishes if possible
+                usedDishNames.Add(name);
+                if (favourites.Contains(name))
+                    favouriteCountInWeek++;
             }
         }
+
+        var favouritesStillNeeded = Math.Max(0, minFavouritesPerWeek - favouriteCountInWeek);
 
         // Pre-compute normalisation constants
         double maxProtein = dishes.Count > 0 ? dishes.Max(d => d.Protein) : 1.0;
@@ -51,6 +46,7 @@ public class FallbackSelectionService : IFallbackSelectionService
 
         var picks = new List<AiDishPick>();
         var usedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var usedCuisines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         for (int slotIndex = 0; slotIndex < mealSlots.Count; slotIndex++)
         {
@@ -65,7 +61,8 @@ public class FallbackSelectionService : IFallbackSelectionService
 
             var ranked = available
                 .Select(d => (dish: d, score: Score(d, strategy, maxProtein, maxKcal,
-                    usedCuisines, usedDishNames, proteinGoal, carbGoal, fatGoal)))
+                    usedCuisines, usedDishNames, proteinGoal, carbGoal, fatGoal,
+                    favourites, favouritesStillNeeded)))
                 .OrderByDescending(t => t.score)
                 .Take(slot.Count)
                 .ToList();
@@ -74,13 +71,16 @@ public class FallbackSelectionService : IFallbackSelectionService
             {
                 usedIds.Add(dish.Id);
                 usedCuisines.Add(dish.Cuisine);
+                if (favourites.Contains(dish.Name))
+                    favouritesStillNeeded = Math.Max(0, favouritesStillNeeded - 1);
+
                 picks.Add(new AiDishPick
                 {
                     DishId = dish.Id,
                     ProteinOption = dish.ProteinOption,
                     MealCategory = dish.MealCategory,
                     SlotIndex = slotIndex,
-                    Reasoning = $"Fallback selection using {strategy} strategy."
+                    Reasoning = $"Fallback: {strategy} strategy."
                 });
             }
         }
@@ -97,18 +97,17 @@ public class FallbackSelectionService : IFallbackSelectionService
         HashSet<string> usedDishNames,
         double? proteinGoal,
         double? carbGoal,
-        double? fatGoal)
+        double? fatGoal,
+        HashSet<string> favourites,
+        int favouritesStillNeeded)
     {
+        // Strategy/macro score
         double strategyScore;
-
         if (proteinGoal.HasValue || carbGoal.HasValue || fatGoal.HasValue)
         {
-            // Macro-goal scoring: how well does this dish contribute to goals?
-            // Priority: protein (weight 0.5) > carbs (0.3) > fat (0.2)
             double protScore = proteinGoal > 0 ? Math.Min(dish.Protein / proteinGoal.Value, 1.0) : 0.5;
             double carbScore = carbGoal > 0 ? Math.Min(dish.Carb / carbGoal.Value, 1.0) : 0.5;
             double fatScore = fatGoal > 0 ? Math.Min(dish.Fat / fatGoal.Value, 1.0) : 0.5;
-            // Penalize overshooting fat
             if (fatGoal > 0 && dish.Fat > fatGoal.Value * 0.5)
                 fatScore *= 0.7;
             strategyScore = protScore * 0.5 + carbScore * 0.3 + fatScore * 0.2;
@@ -119,21 +118,24 @@ public class FallbackSelectionService : IFallbackSelectionService
             {
                 SelectionStrategy.MacrosMax => dish.Protein / maxProtein,
                 SelectionStrategy.LowestCal => 1.0 - (dish.Kcal / maxKcal),
-                _ => dish.Rating / 5.0
+                _ => 0.5 // No rating-based scoring — rating is ignored
             };
         }
 
-        double ratingScore = dish.Rating / 5.0;
+        // Favourite bonus: if we still need favourites this week, boost them significantly
+        double favouriteScore = 0.0;
+        if (favourites.Contains(dish.Name) && favouritesStillNeeded > 0)
+            favouriteScore = 1.0;
 
-        // Variety: penalize same cuisine (mild) and same dish name on other days (strong)
+        // Variety penalty
         double varietyScore = 1.0;
         if (usedCuisines.Contains(dish.Cuisine))
             varietyScore -= 0.3;
         if (usedDishNames.Contains(dish.Name))
-            varietyScore -= 0.6; // Strong penalty for same dish on other days
-
+            varietyScore -= 0.6;
         varietyScore = Math.Max(varietyScore, 0.0);
 
-        return strategyScore * 0.5 + ratingScore * 0.2 + varietyScore * 0.3;
+        // Weights: strategy 0.4, variety 0.3, favourites 0.3
+        return strategyScore * 0.4 + varietyScore * 0.3 + favouriteScore * 0.3;
     }
 }

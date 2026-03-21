@@ -17,6 +17,13 @@ public class AiSelectionRequest
     public double? ProteinGoalGrams { get; set; }
     public double? CarbGoalGrams { get; set; }
     public double? FatGoalGrams { get; set; }
+
+    // Preferred protein variant — always pick this when available for a dish
+    public string? PreferredProteinVariant { get; set; }
+
+    // Favourite dishes that must appear at least MinPerWeek times across the week
+    public List<string> FavouriteDishNames { get; set; } = [];
+    public int MinFavouritesPerWeek { get; set; }
 }
 
 public class AiSelectionResult

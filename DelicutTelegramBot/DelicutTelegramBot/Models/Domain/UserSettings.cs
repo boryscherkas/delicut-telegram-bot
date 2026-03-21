@@ -12,6 +12,14 @@ public class UserSettings
     public double? ProteinGoalGrams { get; set; }
     public double? CarbGoalGrams { get; set; }
     public double? FatGoalGrams { get; set; }
+
+    // Preferred protein variant (e.g., "Shrimps", "Chicken") — always pick this when available
+    public string? PreferredProteinVariant { get; set; }
+
+    // Favourite dishes that must appear at least MinFavouritesPerWeek times per week
+    public List<string> FavouriteDishNames { get; set; } = [];
+    public int MinFavouritesPerWeek { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

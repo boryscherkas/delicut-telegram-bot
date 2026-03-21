@@ -20,6 +20,8 @@ public enum ConversationFlow
     Auth_WaitingOtp,
     Settings_WaitingStopWords,
     Settings_WaitingMacroGoals,
+    Settings_WaitingProteinVariant,
+    Settings_WaitingFavourites,
     Select_ReviewingWeek,
     Select_PickingDay,
     Select_PickingDish,

@@ -118,15 +118,40 @@ public class OpenAiService : IOpenAiService
             """;
         }
 
+        // Protein variant preference
+        var proteinNote = "";
+        if (!string.IsNullOrEmpty(request.PreferredProteinVariant))
+        {
+            proteinNote = $"""
+
+            PROTEIN VARIANT: The user prefers "{request.PreferredProteinVariant}".
+            When a dish is available with this protein option, ALWAYS select that variant.
+            The available_dishes already reflect this preference, so just pick the best dishes.
+            """;
+        }
+
+        // Favourite dishes
+        var favouritesNote = "";
+        if (request.FavouriteDishNames.Count > 0 && request.MinFavouritesPerWeek > 0)
+        {
+            favouritesNote = $"""
+
+            FAVOURITE DISHES (must appear at least {request.MinFavouritesPerWeek}x per week if on menu):
+            {string.Join(", ", request.FavouriteDishNames)}
+            Check week_context to see if favourites are already selected on other days.
+            If a favourite hasn't reached its minimum count yet, prioritize it over other dishes.
+            """;
+        }
+
         // Variety section
         var varietyNote = """
 
             VARIETY RULES:
             - STRONGLY avoid selecting the same dish on consecutive days (e.g., Mon and Tue).
-            - Avoid same dish more than twice per week.
+            - Avoid same dish more than twice per week (unless it's a favourite with minimum count).
             - Vary cuisines across consecutive days.
-            - Exception: if a dish is in user's previous_choices AND has excellent macros for their goals,
-              it's OK to repeat it on non-consecutive days (e.g., Mon and Wed).
+            - Exception: if a dish is a user favourite AND hasn't met its weekly minimum,
+              it's OK to repeat it on non-consecutive days.
             """;
 
         return $"""
@@ -135,8 +160,10 @@ public class OpenAiService : IOpenAiService
 
             Strategy: {strategyDesc}
             {macroGoals}
+            {proteinNote}
+            {favouritesNote}
             Rules:
-            1. Rating: prefer dishes with higher avg_rating (weighted by total_ratings)
+            1. Do NOT use Delicut API ratings — ignore avg_rating and total_ratings fields.
             2. {historyNote}
             3. Fill each meal slot with exactly the requested count
             {varietyNote}

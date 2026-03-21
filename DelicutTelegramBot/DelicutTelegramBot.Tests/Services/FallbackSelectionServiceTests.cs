@@ -109,38 +109,53 @@ public class FallbackSelectionServiceTests
     // ── Default strategy ──────────────────────────────────────────────────────
 
     [Fact]
-    public void Default_HigherRatedDishRanksFirst()
+    public void Default_ReturnsRequestedCount()
     {
         var dishes = new List<DishSummary>
         {
-            MakeDish("R3", rating: 3.0),
-            MakeDish("R5", rating: 5.0),
-            MakeDish("R4", rating: 4.0)
-        };
-        var slots = new List<MealSlot> { Slot("main", 1) };
-
-        var result = _sut.Select(dishes, SelectionStrategy.Default, slots, new());
-
-        Assert.Single(result.Picks);
-        Assert.Equal("R5", result.Picks[0].DishId);
-    }
-
-    [Fact]
-    public void Default_TopNPickedInOrder()
-    {
-        var dishes = new List<DishSummary>
-        {
-            MakeDish("R3", rating: 3.0),
-            MakeDish("R5", rating: 5.0),
-            MakeDish("R4", rating: 4.0)
+            MakeDish("D1", rating: 3.0),
+            MakeDish("D2", rating: 5.0),
+            MakeDish("D3", rating: 4.0)
         };
         var slots = new List<MealSlot> { Slot("main", 2) };
 
         var result = _sut.Select(dishes, SelectionStrategy.Default, slots, new());
 
         Assert.Equal(2, result.Picks.Count);
-        Assert.Equal("R5", result.Picks[0].DishId);
-        Assert.Equal("R4", result.Picks[1].DishId);
+    }
+
+    [Fact]
+    public void Default_WithMacroGoals_PrefersHigherProtein()
+    {
+        var dishes = new List<DishSummary>
+        {
+            MakeDish("LowP", protein: 20),
+            MakeDish("HighP", protein: 60)
+        };
+        var slots = new List<MealSlot> { Slot("main", 1) };
+
+        var result = _sut.Select(dishes, SelectionStrategy.Default, slots, new(),
+            proteinGoal: 190, carbGoal: 200, fatGoal: 50);
+
+        Assert.Single(result.Picks);
+        Assert.Equal("HighP", result.Picks[0].DishId);
+    }
+
+    [Fact]
+    public void Favourites_BoostedWhenStillNeeded()
+    {
+        var dishes = new List<DishSummary>
+        {
+            MakeDish("Regular", protein: 50),
+            MakeDish("Favourite", protein: 30)
+        };
+        var slots = new List<MealSlot> { Slot("main", 1) };
+
+        var result = _sut.Select(dishes, SelectionStrategy.Default, slots, new(),
+            favouriteDishNames: ["Favourite"], minFavouritesPerWeek: 2);
+
+        Assert.Single(result.Picks);
+        Assert.Equal("Favourite", result.Picks[0].DishId);
     }
 
     // ── Variety score (cuisine penalty) ──────────────────────────────────────

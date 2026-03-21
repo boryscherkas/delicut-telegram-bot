@@ -93,6 +93,74 @@ public class SettingsHandler
                         cancellationToken: ct);
             }
         }
+        else if (state.CurrentFlow == ConversationFlow.Settings_WaitingProteinVariant)
+        {
+            var input = message.Text?.Trim() ?? "";
+            var user = await _userService.GetByTelegramIdAsync(userId);
+            if (user is not null)
+            {
+                if (input.Equals("clear", StringComparison.OrdinalIgnoreCase))
+                {
+                    await _userService.UpdateSettingsAsync(user.Id, s => s.PreferredProteinVariant = null);
+                    _stateManager.Reset(userId);
+                    await _bot.SendMessage(message.Chat.Id, "Protein preference cleared.", cancellationToken: ct);
+                }
+                else
+                {
+                    await _userService.UpdateSettingsAsync(user.Id, s => s.PreferredProteinVariant = input);
+                    _stateManager.Reset(userId);
+                    await _bot.SendMessage(message.Chat.Id,
+                        $"Preferred protein set to: {input}\nThis variant will be chosen when available.",
+                        cancellationToken: ct);
+                }
+            }
+        }
+        else if (state.CurrentFlow == ConversationFlow.Settings_WaitingFavourites)
+        {
+            var input = message.Text?.Trim() ?? "";
+            var user = await _userService.GetByTelegramIdAsync(userId);
+            if (user is not null)
+            {
+                if (input.Equals("clear", StringComparison.OrdinalIgnoreCase))
+                {
+                    await _userService.UpdateSettingsAsync(user.Id, s =>
+                    {
+                        s.FavouriteDishNames = [];
+                        s.MinFavouritesPerWeek = 0;
+                    });
+                    _stateManager.Reset(userId);
+                    await _bot.SendMessage(message.Chat.Id, "Favourites cleared.", cancellationToken: ct);
+                }
+                else
+                {
+                    // Parse: "dish1, dish2 | min_count"
+                    var parts = input.Split('|');
+                    var dishNames = parts[0].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .ToList();
+                    var minCount = 1;
+                    if (parts.Length > 1 && int.TryParse(parts[1].Trim(), out var parsed))
+                        minCount = parsed;
+
+                    if (dishNames.Count == 0)
+                    {
+                        await _bot.SendMessage(message.Chat.Id,
+                            "Invalid format. Example: Fresh Poke Bowl, Teriyaki Noodles | 2",
+                            cancellationToken: ct);
+                        return;
+                    }
+
+                    await _userService.UpdateSettingsAsync(user.Id, s =>
+                    {
+                        s.FavouriteDishNames = dishNames;
+                        s.MinFavouritesPerWeek = minCount;
+                    });
+                    _stateManager.Reset(userId);
+                    await _bot.SendMessage(message.Chat.Id,
+                        $"Favourites set: {string.Join(", ", dishNames)} (min {minCount}x/week)",
+                        cancellationToken: ct);
+                }
+            }
+        }
     }
 
     public async Task HandleCallbackAsync(CallbackQuery callback, CancellationToken ct)
@@ -155,6 +223,37 @@ public class SettingsHandler
                 "Example: 190 200 50\n(in grams, priority: protein > carbs > fat)\n\nSend 0 0 0 to clear goals.",
                 cancellationToken: ct);
         }
+        else if (data == "settings:protein")
+        {
+            var state = _stateManager.GetOrCreate(userId);
+            state.CurrentFlow = ConversationFlow.Settings_WaitingProteinVariant;
+            state.LastActivity = DateTime.UtcNow;
+
+            var current = user.Settings.PreferredProteinVariant ?? "not set";
+            await _bot.SendMessage(chatId,
+                $"Current preferred protein: {current}\n\n" +
+                "Send your preferred protein variant (e.g., Chicken, Shrimps, Beef, Tofu).\n" +
+                "Send 'clear' to remove preference.",
+                cancellationToken: ct);
+        }
+        else if (data == "settings:favourites")
+        {
+            var state = _stateManager.GetOrCreate(userId);
+            state.CurrentFlow = ConversationFlow.Settings_WaitingFavourites;
+            state.LastActivity = DateTime.UtcNow;
+
+            var favs = user.Settings.FavouriteDishNames.Count > 0
+                ? string.Join(", ", user.Settings.FavouriteDishNames)
+                : "none";
+            var min = user.Settings.MinFavouritesPerWeek;
+            await _bot.SendMessage(chatId,
+                $"Current favourites: {favs} (min {min}x/week)\n\n" +
+                "Send favourite dish names separated by commas, then a number for minimum per week.\n" +
+                "Format: dish1, dish2 | min_count\n" +
+                "Example: Fresh Poke Bowl, Teriyaki Noodles | 2\n\n" +
+                "Send 'clear' to remove favourites.",
+                cancellationToken: ct);
+        }
         else if (data == "settings:history")
         {
             await _userService.UpdateSettingsAsync(user.Id, s => s.PreferHistory = !s.PreferHistory);
@@ -190,10 +289,20 @@ public class SettingsHandler
             ? $"Macro Goals: P:{settings.ProteinGoalGrams ?? 0}g C:{settings.CarbGoalGrams ?? 0}g F:{settings.FatGoalGrams ?? 0}g"
             : "Macro Goals: not set";
 
+        var proteinLabel = !string.IsNullOrEmpty(settings.PreferredProteinVariant)
+            ? $"Preferred Protein: {settings.PreferredProteinVariant}"
+            : "Preferred Protein: any";
+
+        var favsLabel = settings.FavouriteDishNames.Count > 0
+            ? $"Favourites: {settings.FavouriteDishNames.Count} dishes, min {settings.MinFavouritesPerWeek}x/wk"
+            : "Favourites: none";
+
         var keyboard = new InlineKeyboardMarkup(new[]
         {
             new[] { InlineKeyboardButton.WithCallbackData($"Strategy: {strategyLabel}", "settings:strategy") },
             new[] { InlineKeyboardButton.WithCallbackData(macrosLabel, "settings:macros") },
+            new[] { InlineKeyboardButton.WithCallbackData(proteinLabel, "settings:protein") },
+            new[] { InlineKeyboardButton.WithCallbackData(favsLabel, "settings:favourites") },
             new[] { InlineKeyboardButton.WithCallbackData(stopWordsLabel, "settings:stopwords") },
             new[] { InlineKeyboardButton.WithCallbackData($"Prefer History: {(settings.PreferHistory ? "ON" : "OFF")}", "settings:history") },
             new[] { InlineKeyboardButton.WithCallbackData("Re-authenticate", "settings:reauth") },
