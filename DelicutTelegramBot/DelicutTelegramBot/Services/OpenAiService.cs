@@ -85,12 +85,17 @@ public class OpenAiService : IOpenAiService
 
     private static string BuildSystemPrompt(AiSelectionRequest request)
     {
-        var strategyDesc = request.Strategy switch
-        {
-            SelectionStrategy.LowestCal => "MINIMIZE total calories while maintaining variety.",
-            SelectionStrategy.MacrosMax => "MAXIMIZE protein content while keeping reasonable variety.",
-            _ => "Balanced selection considering taste, variety, and nutrition."
-        };
+        var hasMacroGoals = request.ProteinGoalGrams.HasValue || request.CarbGoalGrams.HasValue || request.FatGoalGrams.HasValue;
+
+        // When macro goals are set, they OVERRIDE the strategy
+        var strategyDesc = hasMacroGoals
+            ? "Use the DAILY MACRO GOALS below (they override any other strategy)."
+            : request.Strategy switch
+            {
+                SelectionStrategy.LowestCal => "MINIMIZE total calories while maintaining variety.",
+                SelectionStrategy.MacrosMax => "MAXIMIZE protein content while keeping reasonable variety.",
+                _ => "Balanced selection considering taste, variety, and nutrition."
+            };
 
         var historyNote = request.PreferHistory
             ? "The user prefers dishes they've had before — boost dishes from the previous_choices list. It's OK to repeat a favourite across days if it has great macros."
@@ -98,7 +103,7 @@ public class OpenAiService : IOpenAiService
 
         // Macro goals section
         var macroGoals = "";
-        if (request.ProteinGoalGrams.HasValue || request.CarbGoalGrams.HasValue || request.FatGoalGrams.HasValue)
+        if (hasMacroGoals)
         {
             var priority = request.MacroPriority;
             var goalMap = new Dictionary<string, string>

@@ -183,8 +183,13 @@ public class MenuSelectionService : IMenuSelectionService
                     MinFavouritesPerWeek = user.Settings?.MinFavouritesPerWeek ?? 0
                 };
 
-                _logger.LogInformation("AI request for {Date} {Category}: {DishCount} dishes available, strategy={Strategy}",
-                    day.Date, category, dishSummaries.Count, request.Strategy);
+                var proteinOptions = dishSummaries.Select(d => d.ProteinOption).Distinct().ToList();
+                _logger.LogInformation(
+                    "AI request for {Date} {Category}: {DishCount} dishes, strategy={Strategy}, " +
+                    "proteinVariants=[{Proteins}], macroGoals=P:{PGoal} C:{CGoal} F:{FGoal}",
+                    day.Date, category, dishSummaries.Count, request.Strategy,
+                    string.Join(",", proteinOptions),
+                    request.ProteinGoalGrams, request.CarbGoalGrams, request.FatGoalGrams);
 
                 // Try AI, fall back if null
                 AiSelectionResult result;
