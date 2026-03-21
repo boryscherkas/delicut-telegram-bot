@@ -237,7 +237,7 @@ public class DelicutApiService : IDelicutApiService
                 schedule.Days.Add(new DeliveryDay
                 {
                     Date = date,
-                    DayOfWeek = date.DayOfWeek.ToString().ToLower(),
+                    DayOfWeek = date.DayOfWeek.ToString(),
                     DeliveryId = deliveryId,
                     Slots = slots,
                     MealCategories = mealCategories.ToList(),
