@@ -81,22 +81,36 @@ public class ChangeDishHandler
 
             var alternatives = await _menuService.GetAlternativesAsync(dbUserId, date, mealCategory, slotIndex);
 
-            // Show alternatives with macro diff vs current
+            // Current day/week totals
+            var curDayKcal = day?.TotalKcal ?? 0;
+            var curDayP = day?.TotalProtein ?? 0;
+            var curDayC = day?.TotalCarb ?? 0;
+            var curDayF = day?.TotalFat ?? 0;
+            var curWeekKcal = proposal.Days.Sum(d => d.TotalKcal);
+            var curWeekP = proposal.Days.Sum(d => d.TotalProtein);
+
+            // Show current dish + day/week context, then alternatives with projected totals
             var lines = new List<string>();
             if (currentDish != null)
             {
                 lines.Add($"Current: {currentDish.DishName} ({currentDish.ProteinOption})");
                 lines.Add($"  {currentDish.Kcal:F0} kcal | P:{currentDish.Protein:F0} C:{currentDish.Carb:F0} F:{currentDish.Fat:F0}");
-                lines.Add("");
             }
-            lines.Add("Alternatives:");
+            lines.Add($"\nDay now: {curDayKcal:F0} kcal | P:{curDayP:F0} C:{curDayC:F0} F:{curDayF:F0}");
+            lines.Add($"Week now: {curWeekKcal:F0} kcal | P:{curWeekP:F0}");
+            lines.Add("\nIf you pick:");
             foreach (var a in alternatives)
             {
                 var kcalDiff = a.Kcal - (currentDish?.Kcal ?? 0);
                 var protDiff = a.Protein - (currentDish?.Protein ?? 0);
-                var sign = kcalDiff >= 0 ? "+" : "";
-                lines.Add($"  {a.DishName} ({a.ProteinOption})");
-                lines.Add($"  {a.Kcal:F0} kcal | P:{a.Protein:F0} C:{a.Carb:F0} F:{a.Fat:F0} ({sign}{kcalDiff:F0} kcal, {(protDiff >= 0 ? "+" : "")}{protDiff:F0}P)");
+                var newDayKcal = curDayKcal + kcalDiff;
+                var newDayP = curDayP + protDiff;
+                var newWeekKcal = curWeekKcal + kcalDiff;
+                var newWeekP = curWeekP + protDiff;
+                lines.Add($"\n  {a.DishName} ({a.ProteinOption})");
+                lines.Add($"  {a.Kcal:F0} kcal | P:{a.Protein:F0} C:{a.Carb:F0} F:{a.Fat:F0}");
+                lines.Add($"  Day: {newDayKcal:F0} kcal P:{newDayP:F0} ({FormatDiff(kcalDiff)} kcal {FormatDiff(protDiff)}P)");
+                lines.Add($"  Week: {newWeekKcal:F0} kcal P:{newWeekP:F0}");
             }
 
             var buttons = alternatives.Select(a =>
