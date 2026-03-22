@@ -12,6 +12,9 @@ namespace DelicutTelegramBot.Services;
 
 public class MenuSelectionService : IMenuSelectionService
 {
+    private const string DateFormat = "yyyy-MM-dd";
+    private const int MaxAiRetries = 3;
+
     private readonly IDelicutApiService _delicutApi;
     private readonly IUserService _userService;
     private readonly IOpenAiService _openAiService;
@@ -50,17 +53,12 @@ public class MenuSelectionService : IMenuSelectionService
             .Include(u => u.Settings)
             .FirstAsync(u => u.Id == userId);
 
-        // Clear existing proposed selections
-        var existingProposed = await _db.PendingSelections
-            .Where(p => p.UserId == userId && p.Status == PendingSelectionStatus.Proposed)
-            .ToListAsync();
-        _db.PendingSelections.RemoveRange(existingProposed);
-        await _db.SaveChangesAsync();
+        await ClearExistingProposalsAsync(userId);
 
-        var subscription = await CallApiSafeAsync(() =>
+        var subscription = await ApiCallHelper.CallApiSafeAsync(() =>
             _delicutApi.GetSubscriptionDetailsAsync(user.DelicutToken!));
 
-        var schedule = await CallApiSafeAsync(() =>
+        var schedule = await ApiCallHelper.CallApiSafeAsync(() =>
             _delicutApi.GetDeliveryScheduleAsync(user.DelicutToken!, user.DelicutCustomerId!));
 
         var mealSlots = subscription.MealTypes
@@ -72,334 +70,30 @@ public class MenuSelectionService : IMenuSelectionService
             })
             .ToList();
 
-        var previousChoices = new List<string>();
-        if (user.Settings?.PreferHistory == true)
-        {
-            previousChoices = await _historyService.GetPreviousChoiceNamesAsync(userId);
-        }
+        var previousChoices = user.Settings?.PreferHistory == true
+            ? await _historyService.GetPreviousChoiceNamesAsync(userId)
+            : [];
 
-        _logger.LogInformation(
-            "Selection settings for user {UserId}: Strategy={Strategy}, " +
-            "MacroGoals=P:{ProteinGoal}g C:{CarbGoal}g F:{FatGoal}g, Priority={Priority}, " +
-            "PreferredProtein={PreferredProtein}, Favourites=[{Favourites}]",
-            userId, user.Settings?.Strategy,
-            user.Settings?.ProteinGoalGrams, user.Settings?.CarbGoalGrams, user.Settings?.FatGoalGrams,
-            user.Settings?.MacroPriority,
-            user.Settings?.PreferredProteinVariant,
-            string.Join(", ", user.Settings?.FavouriteDishNames ?? []));
+        LogSelectionSettings(userId, user);
 
-        // ── Phase 1: Fetch and filter menus for all unlocked days ──
+        // Phase 1: Fetch and filter menus for all unlocked days
         var weekMenuData = await _menuFetchService.FetchAndFilterMenusAsync(user, subscription, schedule, mealSlots);
         var dayMenuData = weekMenuData.Days;
-        var lockedDays = weekMenuData.LockedDays;
 
-        // ── Phase 2: ONE AI call for the entire week ──
+        // Phase 2: Build the selection request
         var macroPriority = (user.Settings?.MacroPriority ?? "p,c,f").Split(',').Select(s => s.Trim()).ToList();
-
-        var weekMenu = dayMenuData.Select(d => new AiDayMenu
-        {
-            Date = d.Day.Date.ToString("yyyy-MM-dd"),
-            DayOfWeek = d.Day.DayOfWeek,
-            MealsNeeded = d.MealSlot.Count,
-            AvailableDishes = d.Summaries
-        }).ToList();
-
-        var weekRequest = new AiSelectionRequest
-        {
-            Strategy = user.Settings?.Strategy ?? SelectionStrategy.Default,
-            Date = dayMenuData.Count > 0 ? dayMenuData[0].Day?.Date ?? DateOnly.FromDateTime(DateTime.Today) : DateOnly.FromDateTime(DateTime.Today),
-            MealSlots = mealSlots,
-            AvailableDishes = [],
-            WeekMenu = weekMenu,
-            StopWords = user.Settings?.StopWords ?? [],
-            PreviousChoices = previousChoices,
-            PreferHistory = user.Settings?.PreferHistory ?? false,
-            WeekContext = new(),
-            MacroPriority = macroPriority,
-            ProteinGoalGrams = user.Settings?.ProteinGoalGrams,
-            CarbGoalGrams = user.Settings?.CarbGoalGrams,
-            FatGoalGrams = user.Settings?.FatGoalGrams,
-            PreferredProteinVariant = user.Settings?.PreferredProteinVariant,
-            FavouriteDishNames = user.Settings?.FavouriteDishNames ?? [],
-            MinFavouritesPerWeek = user.Settings?.MinFavouritesPerWeek ?? 0
-        };
-
-        // Build expected picks per day: { "2026-03-24" -> 3, "2026-03-25" -> 3 }
+        var weekRequest = BuildWeekRequest(user, dayMenuData, mealSlots, previousChoices, macroPriority);
         var expectedPerDay = dayMenuData
-            .ToDictionary(d => d.Day.Date.ToString("yyyy-MM-dd"), d => d.MealSlot.Count);
-        var totalExpected = expectedPerDay.Values.Sum();
+            .ToDictionary(d => d.Day.Date.ToString(DateFormat), d => d.MealSlot.Count);
 
-        var useAi = user.Settings?.UseAiSelection ?? false;
-        AiSelectionResult weekResult = new() { Picks = [] };
+        // Phase 3: AI or fallback selection
+        var weekResult = await SelectDishesAsync(user, weekRequest, dayMenuData, expectedPerDay, macroPriority, regenerate);
 
-        if (useAi)
-        {
-            _logger.LogInformation("Using AI selection for {DayCount} days, {TotalDishes} dishes, expecting {Expected} picks",
-                weekMenu.Count, weekMenu.Sum(d => d.AvailableDishes.Count), totalExpected);
+        // Phase 4: Fix over-repeated dishes
+        FixOverRepeatedDishes(weekResult, dayMenuData);
 
-            const int maxRetries = 3;
-            for (int attempt = 1; attempt <= maxRetries; attempt++)
-            {
-            try
-            {
-                var aiResult = await _openAiService.SelectDishesAsync(weekRequest);
-                if (aiResult != null)
-                {
-                    weekResult = aiResult;
-
-                    // Validate completeness: each day has correct pick count
-                    var picksByDay = weekResult.Picks.GroupBy(p => p.Date)
-                        .ToDictionary(g => g.Key, g => g.Count());
-                    var incompleteDays = expectedPerDay
-                        .Where(kv => picksByDay.GetValueOrDefault(kv.Key, 0) < kv.Value)
-                        .Select(kv => kv.Key)
-                        .ToList();
-
-                    // Validate variety: no dish on more than 2 days
-                    var dishDayCount = weekResult.Picks
-                        .GroupBy(p => p.DishId)
-                        .Where(g => g.Select(p => p.Date).Distinct().Count() > 2)
-                        .Select(g => g.Key)
-                        .ToList();
-
-                    var isComplete = incompleteDays.Count == 0;
-                    var hasGoodVariety = dishDayCount.Count == 0;
-
-                    if (isComplete && hasGoodVariety)
-                    {
-                        _logger.LogInformation("AI attempt {Attempt}: all {Days} days complete, good variety ({Picks} picks)",
-                            attempt, expectedPerDay.Count, weekResult.Picks.Count);
-                        break;
-                    }
-
-                    if (!isComplete)
-                        _logger.LogWarning("AI attempt {Attempt}: {Incomplete}/{Total} days incomplete",
-                            attempt, incompleteDays.Count, expectedPerDay.Count);
-                    if (!hasGoodVariety)
-                        _logger.LogWarning("AI attempt {Attempt}: poor variety — dishes on >2 days: [{Dishes}]",
-                            attempt, string.Join(", ", dishDayCount));
-
-                    if (attempt == maxRetries)
-                        _logger.LogWarning("Max retries reached, will fill missing days with fallback");
-                }
-                else
-                {
-                    _logger.LogWarning("AI attempt {Attempt}: returned null", attempt);
-                    if (attempt == maxRetries) break;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "AI attempt {Attempt} failed", attempt);
-                if (attempt == maxRetries) break;
-            }
-            }
-        }
-        else
-        {
-            _logger.LogInformation("Using algorithmic selection for {DayCount} days", dayMenuData.Count);
-        }
-
-        // Fill incomplete/empty days with fallback (always runs — covers algorithm-only mode too)
-        // Build running week context for variety across days
-        var fallbackWeekContext = new Dictionary<string, List<string>>();
-
-        // Pre-populate context from any AI picks already present
-        foreach (var pick in weekResult.Picks)
-        {
-            if (!fallbackWeekContext.ContainsKey(pick.Date))
-                fallbackWeekContext[pick.Date] = [];
-            // Resolve dish name from menu data
-            var pickDayData = dayMenuData.FirstOrDefault(d => d.Day.Date.ToString("yyyy-MM-dd") == pick.Date);
-            var dishName = pickDayData?.Filtered?.FirstOrDefault(d => d.Id == pick.DishId)?.DishName ?? pick.DishId;
-            fallbackWeekContext[pick.Date].Add(dishName);
-        }
-
-        foreach (var (dayDate, needed) in expectedPerDay)
-        {
-            var currentPicks = weekResult.Picks.Count(p => p.Date == dayDate);
-            if (currentPicks >= needed) continue;
-
-            var dayData = dayMenuData.FirstOrDefault(d => d.Day.Date.ToString("yyyy-MM-dd") == dayDate);
-            if (dayData?.Summaries == null) continue;
-
-            _logger.LogInformation("{Mode} {Date}: has {Current}/{Needed} picks, filling with fallback",
-                useAi ? "AI incomplete" : "Algorithm", dayDate, currentPicks, needed);
-
-            // Remove incomplete picks for this day and replace entirely with fallback
-            weekResult.Picks.RemoveAll(p => p.Date == dayDate);
-            var fallbackResult = _fallbackService.Select(dayData.Summaries, weekRequest.Strategy,
-                [new MealSlot { Category = dayData.MealSlot.Category, ApiCategory = dayData.MealSlot.ApiCategory, Count = needed }],
-                fallbackWeekContext, weekRequest.ProteinGoalGrams, weekRequest.CarbGoalGrams, weekRequest.FatGoalGrams,
-                macroPriority, weekRequest.FavouriteDishNames, weekRequest.MinFavouritesPerWeek,
-                randomness: regenerate ? 0.15 : 0.0);
-            // Add picks and update week context for next day's variety
-            var dayDishNames = new List<string>();
-            foreach (var pick in fallbackResult.Picks)
-            {
-                pick.Date = dayDate;
-                var dishName = dayData.Summaries.FirstOrDefault(s => s.Id == pick.DishId)?.Name ?? pick.DishId;
-                dayDishNames.Add(dishName);
-            }
-            weekResult.Picks.AddRange(fallbackResult.Picks);
-            fallbackWeekContext[dayDate] = dayDishNames;
-        }
-
-        // ── Post-process: fix over-repeated dishes (>2 days) ──
-        var overRepeated = weekResult.Picks
-            .GroupBy(p => p.DishId)
-            .Where(g => g.Select(p => p.Date).Distinct().Count() > 2)
-            .ToList();
-
-        foreach (var group in overRepeated)
-        {
-            var dishId = group.Key;
-            var dates = group.Select(p => p.Date).Distinct().OrderBy(d => d).ToList();
-            // Keep the dish on the first 2 days, replace on the rest
-            var datesToReplace = dates.Skip(2).ToList();
-
-            foreach (var date in datesToReplace)
-            {
-                var pickToReplace = weekResult.Picks
-                    .FirstOrDefault(p => p.DishId == dishId && p.Date == date);
-                if (pickToReplace == null) continue;
-
-                var dayData = dayMenuData.FirstOrDefault(d => d.Day.Date.ToString("yyyy-MM-dd") == date);
-                if (dayData?.Summaries == null) continue;
-
-                // Find the best alternative that isn't already on this day
-                var dayDishIds = weekResult.Picks.Where(p => p.Date == date).Select(p => p.DishId).ToHashSet();
-                var alternative = dayData.Summaries
-                    .Where(s => !dayDishIds.Contains(s.Id) && s.Id != dishId)
-                    .OrderByDescending(s => s.Carb)
-                    .FirstOrDefault();
-
-                if (alternative != null)
-                {
-                    _logger.LogInformation("Variety fix: replacing {OldDish} on {Date} with {NewDish}",
-                        dishId, date, alternative.Id);
-                    pickToReplace.DishId = alternative.Id;
-                    pickToReplace.ProteinOption = alternative.ProteinOption;
-                    pickToReplace.MealCategory = alternative.MealCategory;
-                    pickToReplace.Reasoning = "Replaced for variety (dish was on >2 days)";
-                }
-            }
-        }
-
-        // ── Phase 3: Resolve AI picks into PendingSelections ──
-        var weekContext = new Dictionary<string, List<string>>();
-        var dayProposals = new List<DayProposal>();
-
-        foreach (var dayData in dayMenuData)
-        {
-            var day = dayData.Day;
-            var filtered = dayData.Filtered;
-            var dishSummaries = dayData.Summaries;
-            var slotsByCategory = dayData.SlotsByCategory;
-            var mealSlot = dayData.MealSlot;
-            var category = mealSlot.Category;
-
-            var dayPicks = weekResult.Picks
-                .Where(p => p.Date == day.Date.ToString("yyyy-MM-dd"))
-                .ToList();
-
-            // If AI didn't return picks for this day, use fallback
-            if (dayPicks.Count == 0)
-            {
-                _logger.LogInformation("Using fallback for {Date} (no AI picks)", day.Date);
-                var fallbackResult = _fallbackService.Select(dishSummaries, weekRequest.Strategy,
-                    [new MealSlot { Category = category, ApiCategory = mealSlot.ApiCategory, Count = mealSlot.Count }],
-                    weekContext, weekRequest.ProteinGoalGrams, weekRequest.CarbGoalGrams, weekRequest.FatGoalGrams,
-                    macroPriority, weekRequest.FavouriteDishNames, weekRequest.MinFavouritesPerWeek,
-                    randomness: regenerate ? 0.15 : 0.0);
-                dayPicks = fallbackResult.Picks;
-                foreach (var p in dayPicks) p.Date = day.Date.ToString("yyyy-MM-dd");
-            }
-
-            var dayDishes = new List<ProposedDish>();
-            var firstSlot = slotsByCategory.GetValueOrDefault(category)?.FirstOrDefault();
-
-            foreach (var pick in dayPicks)
-            {
-                var dish = filtered.FirstOrDefault(d => d.Id == pick.DishId);
-                if (dish is null) { _logger.LogWarning("Dish {DishId} not found for {Date}", pick.DishId, day.Date); continue; }
-
-                var variant = dish.Variants.FirstOrDefault(v =>
-                    v.ProteinOption.Equals(pick.ProteinOption, StringComparison.OrdinalIgnoreCase));
-                if (variant is null && !string.IsNullOrEmpty(user.Settings?.PreferredProteinVariant))
-                    variant = dish.Variants.FirstOrDefault(v =>
-                        v.ProteinOption.Equals(user.Settings.PreferredProteinVariant, StringComparison.OrdinalIgnoreCase));
-                variant ??= dish.Variants.FirstOrDefault();
-                if (variant is null) continue;
-
-                var slotsForCategory = slotsByCategory.GetValueOrDefault(category);
-                var matchingSlot = slotsForCategory?.ElementAtOrDefault(pick.SlotIndex);
-                var slotUniqueId = matchingSlot?.UniqueId ?? firstSlot?.UniqueId ?? string.Empty;
-
-                var pending = new PendingSelection
-                {
-                    Id = Guid.NewGuid(),
-                    UserId = userId,
-                    DeliveryDate = day.Date,
-                    DeliveryId = day.DeliveryId,
-                    UniqueId = slotUniqueId,
-                    MealCategory = pick.MealCategory,
-                    SlotIndex = pick.SlotIndex,
-                    DishId = pick.DishId,
-                    DishName = dish.DishName,
-                    VariantProtein = variant.ProteinOption,
-                    VariantSize = !string.IsNullOrEmpty(variant.Size) ? variant.Size
-                        : subscription.MealTypes.FirstOrDefault()?.KcalRange?.ToLower() ?? string.Empty,
-                    VariantProteinCategory = !string.IsNullOrEmpty(variant.ProteinCategory) ? variant.ProteinCategory
-                        : subscription.MealTypes.FirstOrDefault()?.ProteinCategory ?? string.Empty,
-                    Kcal = variant.Kcal,
-                    Protein = variant.Protein,
-                    Carb = variant.Carb,
-                    Fat = variant.Fat,
-                    Status = PendingSelectionStatus.Proposed,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                    };
-                    _db.PendingSelections.Add(pending);
-
-                    dayDishes.Add(new ProposedDish
-                    {
-                        DishId = pick.DishId,
-                        DishName = dish.DishName,
-                        ProteinOption = variant.ProteinOption,
-                        MealCategory = pick.MealCategory,
-                        SlotIndex = pick.SlotIndex,
-                        Kcal = variant.Kcal,
-                        Protein = variant.Protein,
-                        Carb = variant.Carb,
-                        Fat = variant.Fat,
-                        AiReasoning = pick.Reasoning
-                    });
-                }
-
-            await _db.SaveChangesAsync();
-
-            // Update week context with this day's selections
-            weekContext[day.Date.ToString("yyyy-MM-dd")] = dayDishes.Select(d => d.DishName).ToList();
-
-            // Capture original (Delicut auto-selected) totals from delivery slots
-            dayProposals.Add(new DayProposal
-            {
-                Date = day.Date,
-                DayOfWeek = day.DayOfWeek,
-                Dishes = dayDishes,
-                OriginalKcal = day.Slots.Sum(s => s.CurrentKcal),
-                OriginalProtein = day.Slots.Sum(s => s.CurrentProtein),
-                OriginalCarb = day.Slots.Sum(s => s.CurrentCarb),
-                OriginalFat = day.Slots.Sum(s => s.CurrentFat)
-            });
-        }
-
-        return new WeeklyProposal
-        {
-            Days = dayProposals,
-            LockedDays = lockedDays.ToList()
-        };
+        // Phase 5: Resolve picks into PendingSelections and build proposal
+        return await ResolvePicksToProposalAsync(userId, user, subscription, weekRequest, weekResult, dayMenuData, macroPriority, regenerate, weekMenuData.LockedDays);
     }
 
     public async Task<List<DishAlternative>> GetAlternativesAsync(Guid userId, DateOnly date, string mealCategory, int slotIndex)
@@ -417,7 +111,6 @@ public class MenuSelectionService : IMenuSelectionService
             return [];
         }
 
-        // Get currently selected dish IDs for this day EXCEPT the one being replaced
         var otherSelectedDishIds = await _db.PendingSelections
             .Where(p => p.UserId == userId && p.DeliveryDate == date
                 && p.Status == PendingSelectionStatus.Proposed
@@ -425,20 +118,18 @@ public class MenuSelectionService : IMenuSelectionService
             .Select(p => p.DishId)
             .ToListAsync();
 
-        // Filter out only the OTHER selected dishes (not the one being swapped)
         var available = menu.Where(d => !otherSelectedDishIds.Contains(d.Id)).ToList();
 
-        // Also exclude the current dish in this slot (user wants a DIFFERENT dish)
         var currentDishId = await _db.PendingSelections
             .Where(p => p.UserId == userId && p.DeliveryDate == date
                 && p.MealCategory == mealCategory && p.SlotIndex == slotIndex)
             .Select(p => p.DishId)
             .FirstOrDefaultAsync();
+
         if (currentDishId != null)
             available = available.Where(d => d.Id != currentDishId).ToList();
 
-        // Convert to DishSummary, sort by carb content (most relevant for macro goals), take top 5
-        var alternatives = DishSummaryHelper.FlattenToDishSummaries(available, mealCategory,
+        return DishSummaryHelper.FlattenToDishSummaries(available, mealCategory,
                 user.Settings?.PreferredProteinVariant)
             .OrderByDescending(ds => ds.Carb)
             .Take(5)
@@ -454,8 +145,6 @@ public class MenuSelectionService : IMenuSelectionService
                 AvgRating = ds.Rating
             })
             .ToList();
-
-        return alternatives;
     }
 
     public async Task ReplaceDishAsync(Guid userId, DateOnly date, string mealCategory, int slotIndex, string newDishId, string proteinOption)
@@ -468,7 +157,6 @@ public class MenuSelectionService : IMenuSelectionService
                 && p.MealCategory == mealCategory
                 && p.SlotIndex == slotIndex);
 
-        // Load dish data from cached menu
         var state = _stateManager.GetOrCreate(user.TelegramUserId);
         var cacheKey = $"menu:{date}:{mealCategory}";
 
@@ -513,7 +201,6 @@ public class MenuSelectionService : IMenuSelectionService
 
     public async Task SubmitDayAsync(Guid userId, DateOnly date)
     {
-        // Confirm + submit just this one day
         await ConfirmDayAsync(userId, date);
 
         var user = await _db.Users.FirstAsync(u => u.Id == userId);
@@ -527,7 +214,6 @@ public class MenuSelectionService : IMenuSelectionService
             return;
         }
 
-        // Submit all dishes first; only remove from DB if ALL succeed
         foreach (var sel in daySelections)
         {
             var submission = new DishSubmission
@@ -542,7 +228,7 @@ public class MenuSelectionService : IMenuSelectionService
 
             try
             {
-                await CallApiSafeAsync(async () =>
+                await ApiCallHelper.CallApiSafeAsync(async () =>
                 {
                     await _delicutApi.SubmitDishSelectionAsync(
                         user.DelicutToken!, user.DelicutCustomerId!,
@@ -558,7 +244,6 @@ public class MenuSelectionService : IMenuSelectionService
             }
         }
 
-        // All API calls succeeded — now persist state changes
         await _historyService.RecordSelectionsAsync(userId, daySelections, wasUserChoice: true);
         _db.PendingSelections.RemoveRange(daySelections);
         await _db.SaveChangesAsync();
@@ -592,7 +277,7 @@ public class MenuSelectionService : IMenuSelectionService
 
             try
             {
-                await CallApiSafeAsync(async () =>
+                await ApiCallHelper.CallApiSafeAsync(async () =>
                 {
                     await _delicutApi.SubmitDishSelectionAsync(
                         user.DelicutToken!,
@@ -600,17 +285,13 @@ public class MenuSelectionService : IMenuSelectionService
                         group.Key.DeliveryId,
                         group.Key.UniqueId,
                         submissions);
-                    return true; // dummy return for generic helper
+                    return true;
                 });
 
-                // Record to history and remove from pending
                 await _historyService.RecordSelectionsAsync(userId, group.ToList(), wasUserChoice: true);
                 _db.PendingSelections.RemoveRange(group);
             }
-            catch (DelicutAuthExpiredException)
-            {
-                throw;
-            }
+            catch (DelicutAuthExpiredException) { throw; }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to submit selections for {Date}", group.Key.DeliveryDate);
@@ -627,15 +308,398 @@ public class MenuSelectionService : IMenuSelectionService
         }
     }
 
-    private async Task<T> CallApiSafeAsync<T>(Func<Task<T>> apiCall)
+    // ── Private helpers ──────────────────────────────────────────────
+
+    private async Task ClearExistingProposalsAsync(Guid userId)
     {
-        try
+        var existingProposed = await _db.PendingSelections
+            .Where(p => p.UserId == userId && p.Status == PendingSelectionStatus.Proposed)
+            .ToListAsync();
+        _db.PendingSelections.RemoveRange(existingProposed);
+        await _db.SaveChangesAsync();
+    }
+
+    private void LogSelectionSettings(Guid userId, User user)
+    {
+        _logger.LogInformation(
+            "Selection settings for user {UserId}: Strategy={Strategy}, " +
+            "MacroGoals=P:{ProteinGoal}g C:{CarbGoal}g F:{FatGoal}g, Priority={Priority}, " +
+            "PreferredProtein={PreferredProtein}, Favourites=[{Favourites}]",
+            userId, user.Settings?.Strategy,
+            user.Settings?.ProteinGoalGrams, user.Settings?.CarbGoalGrams, user.Settings?.FatGoalGrams,
+            user.Settings?.MacroPriority,
+            user.Settings?.PreferredProteinVariant,
+            string.Join(", ", user.Settings?.FavouriteDishNames ?? []));
+    }
+
+    private static AiSelectionRequest BuildWeekRequest(
+        User user, List<DayMenuData> dayMenuData, List<MealSlot> mealSlots,
+        List<string> previousChoices, List<string> macroPriority)
+    {
+        var weekMenu = dayMenuData.Select(d => new AiDayMenu
         {
-            return await apiCall();
-        }
-        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            Date = d.Day.Date.ToString(DateFormat),
+            DayOfWeek = d.Day.DayOfWeek,
+            MealsNeeded = d.MealSlot.Count,
+            AvailableDishes = d.Summaries
+        }).ToList();
+
+        return new AiSelectionRequest
         {
-            throw new DelicutAuthExpiredException("Delicut token expired or invalid.", ex);
+            Strategy = user.Settings?.Strategy ?? SelectionStrategy.Default,
+            Date = dayMenuData.Count > 0
+                ? dayMenuData[0].Day?.Date ?? DateOnly.FromDateTime(DateTime.Today)
+                : DateOnly.FromDateTime(DateTime.Today),
+            MealSlots = mealSlots,
+            AvailableDishes = [],
+            WeekMenu = weekMenu,
+            StopWords = user.Settings?.StopWords ?? [],
+            PreviousChoices = previousChoices,
+            PreferHistory = user.Settings?.PreferHistory ?? false,
+            WeekContext = new(),
+            MacroPriority = macroPriority,
+            ProteinGoalGrams = user.Settings?.ProteinGoalGrams,
+            CarbGoalGrams = user.Settings?.CarbGoalGrams,
+            FatGoalGrams = user.Settings?.FatGoalGrams,
+            PreferredProteinVariant = user.Settings?.PreferredProteinVariant,
+            FavouriteDishNames = user.Settings?.FavouriteDishNames ?? [],
+            MinFavouritesPerWeek = user.Settings?.MinFavouritesPerWeek ?? 0
+        };
+    }
+
+    private async Task<AiSelectionResult> SelectDishesAsync(
+        User user, AiSelectionRequest weekRequest, List<DayMenuData> dayMenuData,
+        Dictionary<string, int> expectedPerDay, List<string> macroPriority, bool regenerate)
+    {
+        var useAi = user.Settings?.UseAiSelection ?? false;
+        var weekResult = useAi
+            ? await RunAiSelectionWithRetriesAsync(weekRequest, dayMenuData, expectedPerDay)
+            : new AiSelectionResult { Picks = [] };
+
+        if (!useAi)
+            _logger.LogInformation("Using algorithmic selection for {DayCount} days", dayMenuData.Count);
+
+        FillIncompleteDaysWithFallback(weekResult, dayMenuData, expectedPerDay, weekRequest, macroPriority, useAi, regenerate);
+        return weekResult;
+    }
+
+    private async Task<AiSelectionResult> RunAiSelectionWithRetriesAsync(
+        AiSelectionRequest weekRequest, List<DayMenuData> dayMenuData,
+        Dictionary<string, int> expectedPerDay)
+    {
+        var totalExpected = expectedPerDay.Values.Sum();
+        var weekMenu = weekRequest.WeekMenu!;
+
+        _logger.LogInformation("Using AI selection for {DayCount} days, {TotalDishes} dishes, expecting {Expected} picks",
+            weekMenu.Count, weekMenu.Sum(d => d.AvailableDishes.Count), totalExpected);
+
+        var weekResult = new AiSelectionResult { Picks = [] };
+
+        for (int attempt = 1; attempt <= MaxAiRetries; attempt++)
+        {
+            try
+            {
+                var aiResult = await _openAiService.SelectDishesAsync(weekRequest);
+                if (aiResult == null)
+                {
+                    _logger.LogWarning("AI attempt {Attempt}: returned null", attempt);
+                    continue;
+                }
+
+                weekResult = aiResult;
+
+                if (ValidateAiResult(weekResult, expectedPerDay, attempt))
+                    break;
+
+                if (attempt == MaxAiRetries)
+                    _logger.LogWarning("Max retries reached, will fill missing days with fallback");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "AI attempt {Attempt} failed", attempt);
+            }
         }
+
+        return weekResult;
+    }
+
+    private bool ValidateAiResult(AiSelectionResult result, Dictionary<string, int> expectedPerDay, int attempt)
+    {
+        var picksByDay = result.Picks.GroupBy(p => p.Date)
+            .ToDictionary(g => g.Key, g => g.Count());
+        var incompleteDays = expectedPerDay
+            .Where(kv => picksByDay.GetValueOrDefault(kv.Key, 0) < kv.Value)
+            .Select(kv => kv.Key)
+            .ToList();
+
+        var overRepeatedDishes = result.Picks
+            .GroupBy(p => p.DishId)
+            .Where(g => g.Select(p => p.Date).Distinct().Count() > 2)
+            .Select(g => g.Key)
+            .ToList();
+
+        var isComplete = incompleteDays.Count == 0;
+        var hasGoodVariety = overRepeatedDishes.Count == 0;
+
+        if (isComplete && hasGoodVariety)
+        {
+            _logger.LogInformation("AI attempt {Attempt}: all {Days} days complete, good variety ({Picks} picks)",
+                attempt, expectedPerDay.Count, result.Picks.Count);
+            return true;
+        }
+
+        if (!isComplete)
+            _logger.LogWarning("AI attempt {Attempt}: {Incomplete}/{Total} days incomplete",
+                attempt, incompleteDays.Count, expectedPerDay.Count);
+        if (!hasGoodVariety)
+            _logger.LogWarning("AI attempt {Attempt}: poor variety -- dishes on >2 days: [{Dishes}]",
+                attempt, string.Join(", ", overRepeatedDishes));
+
+        return false;
+    }
+
+    private void FillIncompleteDaysWithFallback(
+        AiSelectionResult weekResult, List<DayMenuData> dayMenuData,
+        Dictionary<string, int> expectedPerDay, AiSelectionRequest weekRequest,
+        List<string> macroPriority, bool useAi, bool regenerate)
+    {
+        var fallbackWeekContext = BuildWeekContextFromPicks(weekResult, dayMenuData);
+
+        foreach (var (dayDate, needed) in expectedPerDay)
+        {
+            var currentPicks = weekResult.Picks.Count(p => p.Date == dayDate);
+            if (currentPicks >= needed) continue;
+
+            var dayData = dayMenuData.FirstOrDefault(d => d.Day.Date.ToString(DateFormat) == dayDate);
+            if (dayData?.Summaries == null) continue;
+
+            _logger.LogInformation("{Mode} {Date}: has {Current}/{Needed} picks, filling with fallback",
+                useAi ? "AI incomplete" : "Algorithm", dayDate, currentPicks, needed);
+
+            weekResult.Picks.RemoveAll(p => p.Date == dayDate);
+            var fallbackResult = _fallbackService.Select(dayData.Summaries, weekRequest.Strategy,
+                [new MealSlot { Category = dayData.MealSlot.Category, ApiCategory = dayData.MealSlot.ApiCategory, Count = needed }],
+                fallbackWeekContext, weekRequest.ProteinGoalGrams, weekRequest.CarbGoalGrams, weekRequest.FatGoalGrams,
+                macroPriority, weekRequest.FavouriteDishNames, weekRequest.MinFavouritesPerWeek,
+                randomness: regenerate ? 0.15 : 0.0);
+
+            var dayDishNames = new List<string>();
+            foreach (var pick in fallbackResult.Picks)
+            {
+                pick.Date = dayDate;
+                var dishName = dayData.Summaries.FirstOrDefault(s => s.Id == pick.DishId)?.Name ?? pick.DishId;
+                dayDishNames.Add(dishName);
+            }
+            weekResult.Picks.AddRange(fallbackResult.Picks);
+            fallbackWeekContext[dayDate] = dayDishNames;
+        }
+    }
+
+    private static Dictionary<string, List<string>> BuildWeekContextFromPicks(
+        AiSelectionResult weekResult, List<DayMenuData> dayMenuData)
+    {
+        var context = new Dictionary<string, List<string>>();
+
+        foreach (var pick in weekResult.Picks)
+        {
+            if (!context.ContainsKey(pick.Date))
+                context[pick.Date] = [];
+
+            var pickDayData = dayMenuData.FirstOrDefault(d => d.Day.Date.ToString(DateFormat) == pick.Date);
+            var dishName = pickDayData?.Filtered?.FirstOrDefault(d => d.Id == pick.DishId)?.DishName ?? pick.DishId;
+            context[pick.Date].Add(dishName);
+        }
+
+        return context;
+    }
+
+    private void FixOverRepeatedDishes(AiSelectionResult weekResult, List<DayMenuData> dayMenuData)
+    {
+        var overRepeated = weekResult.Picks
+            .GroupBy(p => p.DishId)
+            .Where(g => g.Select(p => p.Date).Distinct().Count() > 2)
+            .ToList();
+
+        foreach (var group in overRepeated)
+        {
+            var dishId = group.Key;
+            var dates = group.Select(p => p.Date).Distinct().OrderBy(d => d).ToList();
+            var datesToReplace = dates.Skip(2).ToList();
+
+            foreach (var date in datesToReplace)
+            {
+                var pickToReplace = weekResult.Picks
+                    .FirstOrDefault(p => p.DishId == dishId && p.Date == date);
+                if (pickToReplace == null) continue;
+
+                var dayData = dayMenuData.FirstOrDefault(d => d.Day.Date.ToString(DateFormat) == date);
+                if (dayData?.Summaries == null) continue;
+
+                var dayDishIds = weekResult.Picks.Where(p => p.Date == date).Select(p => p.DishId).ToHashSet();
+                var alternative = dayData.Summaries
+                    .Where(s => !dayDishIds.Contains(s.Id) && s.Id != dishId)
+                    .OrderByDescending(s => s.Carb)
+                    .FirstOrDefault();
+
+                if (alternative == null) continue;
+
+                _logger.LogInformation("Variety fix: replacing {OldDish} on {Date} with {NewDish}",
+                    dishId, date, alternative.Id);
+                pickToReplace.DishId = alternative.Id;
+                pickToReplace.ProteinOption = alternative.ProteinOption;
+                pickToReplace.MealCategory = alternative.MealCategory;
+                pickToReplace.Reasoning = "Replaced for variety (dish was on >2 days)";
+            }
+        }
+    }
+
+    private async Task<WeeklyProposal> ResolvePicksToProposalAsync(
+        Guid userId, User user, Subscription subscription,
+        AiSelectionRequest weekRequest, AiSelectionResult weekResult,
+        List<DayMenuData> dayMenuData, List<string> macroPriority,
+        bool regenerate, List<DateOnly> lockedDays)
+    {
+        var weekContext = new Dictionary<string, List<string>>();
+        var dayProposals = new List<DayProposal>();
+
+        foreach (var dayData in dayMenuData)
+        {
+            var day = dayData.Day;
+            var category = dayData.MealSlot.Category;
+            var dateKey = day.Date.ToString(DateFormat);
+
+            var dayPicks = weekResult.Picks
+                .Where(p => p.Date == dateKey)
+                .ToList();
+
+            if (dayPicks.Count == 0)
+            {
+                dayPicks = RunFallbackForDay(dayData, weekRequest, weekContext, macroPriority, regenerate);
+                foreach (var p in dayPicks) p.Date = dateKey;
+            }
+
+            var dayDishes = ResolveDayPicks(
+                userId, user, subscription, dayData, dayPicks);
+
+            await _db.SaveChangesAsync();
+            weekContext[dateKey] = dayDishes.Select(d => d.DishName).ToList();
+
+            dayProposals.Add(new DayProposal
+            {
+                Date = day.Date,
+                DayOfWeek = day.DayOfWeek,
+                Dishes = dayDishes,
+                OriginalKcal = day.Slots.Sum(s => s.CurrentKcal),
+                OriginalProtein = day.Slots.Sum(s => s.CurrentProtein),
+                OriginalCarb = day.Slots.Sum(s => s.CurrentCarb),
+                OriginalFat = day.Slots.Sum(s => s.CurrentFat)
+            });
+        }
+
+        return new WeeklyProposal
+        {
+            Days = dayProposals,
+            LockedDays = lockedDays.ToList()
+        };
+    }
+
+    private List<AiDishPick> RunFallbackForDay(
+        DayMenuData dayData, AiSelectionRequest weekRequest,
+        Dictionary<string, List<string>> weekContext,
+        List<string> macroPriority, bool regenerate)
+    {
+        var category = dayData.MealSlot.Category;
+        _logger.LogInformation("Using fallback for {Date} (no AI picks)", dayData.Day.Date);
+
+        var fallbackResult = _fallbackService.Select(dayData.Summaries, weekRequest.Strategy,
+            [new MealSlot { Category = category, ApiCategory = dayData.MealSlot.ApiCategory, Count = dayData.MealSlot.Count }],
+            weekContext, weekRequest.ProteinGoalGrams, weekRequest.CarbGoalGrams, weekRequest.FatGoalGrams,
+            macroPriority, weekRequest.FavouriteDishNames, weekRequest.MinFavouritesPerWeek,
+            randomness: regenerate ? 0.15 : 0.0);
+
+        return fallbackResult.Picks;
+    }
+
+    private List<ProposedDish> ResolveDayPicks(
+        Guid userId, User user, Subscription subscription,
+        DayMenuData dayData, List<AiDishPick> dayPicks)
+    {
+        var day = dayData.Day;
+        var filtered = dayData.Filtered;
+        var slotsByCategory = dayData.SlotsByCategory;
+        var category = dayData.MealSlot.Category;
+        var dayDishes = new List<ProposedDish>();
+        var firstSlot = slotsByCategory.GetValueOrDefault(category)?.FirstOrDefault();
+
+        foreach (var pick in dayPicks)
+        {
+            var dish = filtered.FirstOrDefault(d => d.Id == pick.DishId);
+            if (dish is null)
+            {
+                _logger.LogWarning("Dish {DishId} not found for {Date}", pick.DishId, day.Date);
+                continue;
+            }
+
+            var variant = ResolveVariant(dish, pick.ProteinOption, user.Settings?.PreferredProteinVariant);
+            if (variant is null) continue;
+
+            var slotsForCategory = slotsByCategory.GetValueOrDefault(category);
+            var matchingSlot = slotsForCategory?.ElementAtOrDefault(pick.SlotIndex);
+            var slotUniqueId = matchingSlot?.UniqueId ?? firstSlot?.UniqueId ?? string.Empty;
+            var defaultKcalRange = subscription.MealTypes.FirstOrDefault()?.KcalRange?.ToLower() ?? string.Empty;
+            var defaultProteinCategory = subscription.MealTypes.FirstOrDefault()?.ProteinCategory ?? string.Empty;
+
+            var pending = new PendingSelection
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                DeliveryDate = day.Date,
+                DeliveryId = day.DeliveryId,
+                UniqueId = slotUniqueId,
+                MealCategory = pick.MealCategory,
+                SlotIndex = pick.SlotIndex,
+                DishId = pick.DishId,
+                DishName = dish.DishName,
+                VariantProtein = variant.ProteinOption,
+                VariantSize = !string.IsNullOrEmpty(variant.Size) ? variant.Size : defaultKcalRange,
+                VariantProteinCategory = !string.IsNullOrEmpty(variant.ProteinCategory) ? variant.ProteinCategory : defaultProteinCategory,
+                Kcal = variant.Kcal,
+                Protein = variant.Protein,
+                Carb = variant.Carb,
+                Fat = variant.Fat,
+                Status = PendingSelectionStatus.Proposed,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+            _db.PendingSelections.Add(pending);
+
+            dayDishes.Add(new ProposedDish
+            {
+                DishId = pick.DishId,
+                DishName = dish.DishName,
+                ProteinOption = variant.ProteinOption,
+                MealCategory = pick.MealCategory,
+                SlotIndex = pick.SlotIndex,
+                Kcal = variant.Kcal,
+                Protein = variant.Protein,
+                Carb = variant.Carb,
+                Fat = variant.Fat,
+                AiReasoning = pick.Reasoning
+            });
+        }
+
+        return dayDishes;
+    }
+
+    private static DishVariant? ResolveVariant(Dish dish, string proteinOption, string? preferredProtein)
+    {
+        var variant = dish.Variants.FirstOrDefault(v =>
+            v.ProteinOption.Equals(proteinOption, StringComparison.OrdinalIgnoreCase));
+
+        if (variant is null && !string.IsNullOrEmpty(preferredProtein))
+            variant = dish.Variants.FirstOrDefault(v =>
+                v.ProteinOption.Equals(preferredProtein, StringComparison.OrdinalIgnoreCase));
+
+        return variant ?? dish.Variants.FirstOrDefault();
     }
 }

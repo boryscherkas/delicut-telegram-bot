@@ -75,122 +75,139 @@ public class SelectWeekHandler
         }
 
         if (data == "select:approve_all")
-        {
-            var dbUserId = (Guid)state.FlowData["user_id"];
-            var proposal = (WeeklyProposal)state.FlowData["proposal"];
-
-            foreach (var day in proposal.Days)
-                await _menuService.ConfirmDayAsync(dbUserId, day.Date);
-
-            try
-            {
-                await _menuService.ConfirmWeekAsync(dbUserId);
-                _stateManager.Reset(userId);
-                await _bot.SendMessage(chatId, "All dishes confirmed and submitted!", cancellationToken: ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to submit week for user {UserId}", dbUserId);
-                await _bot.SendMessage(chatId, $"Some days failed to submit. Try /select again.\n{ex.Message}", cancellationToken: ct);
-            }
-        }
+            await HandleApproveAllAsync(chatId, userId, state, ct);
         else if (data == "select:submit_confirmed")
-        {
-            // Submit only days that have been explicitly confirmed by the user
-            var dbUserId = (Guid)state.FlowData["user_id"];
-            try
-            {
-                await _menuService.ConfirmWeekAsync(dbUserId);
-                _stateManager.Reset(userId);
-                await _bot.SendMessage(chatId, "Confirmed dishes submitted to Delicut!", cancellationToken: ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to submit confirmed days for user {UserId}", dbUserId);
-                await _bot.SendMessage(chatId, $"Some days failed to submit. Try again.\n{ex.Message}", cancellationToken: ct);
-            }
-        }
+            await HandleSubmitConfirmedAsync(chatId, userId, state, ct);
         else if (data == "select:regenerate")
-        {
-            var dbUserId = (Guid)state.FlowData["user_id"];
-            _stateManager.Reset(userId);
-            await _bot.SendMessage(chatId, "Regenerating with different dishes...", cancellationToken: ct);
-
-            // Re-run with randomness
-            var user = await _userService.GetByTelegramIdAsync(userId);
-            if (user is null) return;
-
-            var proposal = await _menuService.SelectForWeekAsync(user.Id, regenerate: true);
-
-            var newState = _stateManager.GetOrCreate(userId);
-            newState.CurrentFlow = ConversationFlow.Select_ReviewingWeek;
-            newState.FlowData["proposal"] = proposal;
-            newState.FlowData["user_id"] = user.Id;
-            newState.LastActivity = DateTime.UtcNow;
-
-            var newText = FormatWeekOverview(proposal,
-                user.Settings?.ProteinGoalGrams,
-                user.Settings?.CarbGoalGrams,
-                user.Settings?.FatGoalGrams);
-
-            await KeyboardBuilder.SendOrSplitMessageAsync(_bot, chatId, newText,
-                KeyboardBuilder.WeekOverviewCompactKeyboard(), ct);
-        }
+            await HandleRegenerateAsync(chatId, userId, state, ct);
         else if (data == "select:approve_day")
-        {
-            // Show day picker for per-day approval
-            var proposal = (WeeklyProposal)state.FlowData["proposal"];
-            var buttons = proposal.Days.Select(d =>
-                InlineKeyboardButton.WithCallbackData(
-                    $"{d.DayOfWeek[..3]} ({d.Date:MMM dd})", $"select:submit_day:{d.Date:yyyy-MM-dd}"))
-                .ToArray();
-            var dayKeyboard = new InlineKeyboardMarkup(buttons.Chunk(3));
-            await _bot.SendMessage(chatId, "Which day to submit?", replyMarkup: dayKeyboard, cancellationToken: ct);
-        }
+            await HandleApproveDayPickerAsync(chatId, state, ct);
         else if (data.StartsWith("select:submit_day:"))
-        {
-            var dateStr = data["select:submit_day:".Length..];
-            var date = DateOnly.Parse(dateStr);
-            var dbUserId = (Guid)state.FlowData["user_id"];
-
-            await _menuService.ConfirmDayAsync(dbUserId, date);
-            try
-            {
-                await _menuService.ConfirmWeekAsync(dbUserId); // Submits only Confirmed days
-                await _bot.SendMessage(chatId, $"{date:ddd MMM dd} submitted to Delicut!", cancellationToken: ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to submit day {Date}", date);
-                await _bot.SendMessage(chatId, $"Failed to submit {date:MMM dd}: {ex.Message}", cancellationToken: ct);
-            }
-        }
+            await HandleSubmitDayAsync(chatId, data, state, ct);
         else if (data == "select:show_week")
-        {
-            var proposal = (WeeklyProposal)state.FlowData["proposal"];
-            var user = await _userService.GetByTelegramIdAsync(userId);
-            var weekText = FormatWeekOverview(proposal,
-                user?.Settings?.ProteinGoalGrams, user?.Settings?.CarbGoalGrams, user?.Settings?.FatGoalGrams);
-
-            await KeyboardBuilder.SendOrSplitMessageAsync(_bot, chatId, weekText,
-                KeyboardBuilder.WeekOverviewCompactKeyboard(), ct);
-        }
+            await HandleShowWeekAsync(chatId, userId, state, ct);
         else if (data == "select:change")
-        {
-            state.CurrentFlow = ConversationFlow.Select_PickingDay;
-            state.LastActivity = DateTime.UtcNow;
-
-            var proposal = (WeeklyProposal)state.FlowData["proposal"];
-            var buttons = proposal.Days.Select(d =>
-                InlineKeyboardButton.WithCallbackData(
-                    d.DayOfWeek[..3], $"change:day:{d.Date:yyyy-MM-dd}"))
-                .ToArray();
-
-            var keyboard = new InlineKeyboardMarkup(buttons.Chunk(3));
-            await _bot.SendMessage(chatId, "Which day do you want to change?", replyMarkup: keyboard, cancellationToken: ct);
-        }
+            await HandleChangeAsync(chatId, userId, state, ct);
 
         await _bot.AnswerCallbackQuery(callback.Id, cancellationToken: ct);
+    }
+
+    private async Task HandleApproveAllAsync(long chatId, long userId, ConversationState state, CancellationToken ct)
+    {
+        var dbUserId = (Guid)state.FlowData["user_id"];
+        var proposal = (WeeklyProposal)state.FlowData["proposal"];
+
+        foreach (var day in proposal.Days)
+            await _menuService.ConfirmDayAsync(dbUserId, day.Date);
+
+        try
+        {
+            await _menuService.ConfirmWeekAsync(dbUserId);
+            _stateManager.Reset(userId);
+            await _bot.SendMessage(chatId, "All dishes confirmed and submitted!", cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to submit week for user {UserId}", dbUserId);
+            await _bot.SendMessage(chatId, $"Some days failed to submit. Try /select again.\n{ex.Message}", cancellationToken: ct);
+        }
+    }
+
+    private async Task HandleSubmitConfirmedAsync(long chatId, long userId, ConversationState state, CancellationToken ct)
+    {
+        var dbUserId = (Guid)state.FlowData["user_id"];
+        try
+        {
+            await _menuService.ConfirmWeekAsync(dbUserId);
+            _stateManager.Reset(userId);
+            await _bot.SendMessage(chatId, "Confirmed dishes submitted to Delicut!", cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to submit confirmed days for user {UserId}", dbUserId);
+            await _bot.SendMessage(chatId, $"Some days failed to submit. Try again.\n{ex.Message}", cancellationToken: ct);
+        }
+    }
+
+    private async Task HandleRegenerateAsync(long chatId, long userId, ConversationState state, CancellationToken ct)
+    {
+        _stateManager.Reset(userId);
+        await _bot.SendMessage(chatId, "Regenerating with different dishes...", cancellationToken: ct);
+
+        var user = await _userService.GetByTelegramIdAsync(userId);
+        if (user is null) return;
+
+        var proposal = await _menuService.SelectForWeekAsync(user.Id, regenerate: true);
+
+        var newState = _stateManager.GetOrCreate(userId);
+        newState.CurrentFlow = ConversationFlow.Select_ReviewingWeek;
+        newState.FlowData["proposal"] = proposal;
+        newState.FlowData["user_id"] = user.Id;
+        newState.LastActivity = DateTime.UtcNow;
+
+        var text = FormatWeekOverview(proposal,
+            user.Settings?.ProteinGoalGrams,
+            user.Settings?.CarbGoalGrams,
+            user.Settings?.FatGoalGrams);
+
+        await KeyboardBuilder.SendOrSplitMessageAsync(_bot, chatId, text,
+            KeyboardBuilder.WeekOverviewCompactKeyboard(), ct);
+    }
+
+    private async Task HandleApproveDayPickerAsync(long chatId, ConversationState state, CancellationToken ct)
+    {
+        var proposal = (WeeklyProposal)state.FlowData["proposal"];
+        var buttons = proposal.Days.Select(d =>
+            InlineKeyboardButton.WithCallbackData(
+                $"{d.DayOfWeek[..3]} ({d.Date:MMM dd})", $"select:submit_day:{d.Date:yyyy-MM-dd}"))
+            .ToArray();
+        var dayKeyboard = new InlineKeyboardMarkup(buttons.Chunk(3));
+        await _bot.SendMessage(chatId, "Which day to submit?", replyMarkup: dayKeyboard, cancellationToken: ct);
+    }
+
+    private async Task HandleSubmitDayAsync(long chatId, string data, ConversationState state, CancellationToken ct)
+    {
+        var dateStr = data["select:submit_day:".Length..];
+        var date = DateOnly.Parse(dateStr);
+        var dbUserId = (Guid)state.FlowData["user_id"];
+
+        await _menuService.ConfirmDayAsync(dbUserId, date);
+        try
+        {
+            await _menuService.ConfirmWeekAsync(dbUserId);
+            await _bot.SendMessage(chatId, $"{date:ddd MMM dd} submitted to Delicut!", cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to submit day {Date}", date);
+            await _bot.SendMessage(chatId, $"Failed to submit {date:MMM dd}: {ex.Message}", cancellationToken: ct);
+        }
+    }
+
+    private async Task HandleShowWeekAsync(long chatId, long userId, ConversationState state, CancellationToken ct)
+    {
+        var proposal = (WeeklyProposal)state.FlowData["proposal"];
+        var user = await _userService.GetByTelegramIdAsync(userId);
+        var weekText = FormatWeekOverview(proposal,
+            user?.Settings?.ProteinGoalGrams, user?.Settings?.CarbGoalGrams, user?.Settings?.FatGoalGrams);
+
+        await KeyboardBuilder.SendOrSplitMessageAsync(_bot, chatId, weekText,
+            KeyboardBuilder.WeekOverviewCompactKeyboard(), ct);
+    }
+
+    private async Task HandleChangeAsync(long chatId, long userId, ConversationState state, CancellationToken ct)
+    {
+        state.CurrentFlow = ConversationFlow.Select_PickingDay;
+        state.LastActivity = DateTime.UtcNow;
+
+        var proposal = (WeeklyProposal)state.FlowData["proposal"];
+        var buttons = proposal.Days.Select(d =>
+            InlineKeyboardButton.WithCallbackData(
+                d.DayOfWeek[..3], $"change:day:{d.Date:yyyy-MM-dd}"))
+            .ToArray();
+
+        var keyboard = new InlineKeyboardMarkup(buttons.Chunk(3));
+        await _bot.SendMessage(chatId, "Which day do you want to change?", replyMarkup: keyboard, cancellationToken: ct);
     }
 
     private static string FormatWeekOverview(WeeklyProposal proposal,
@@ -210,56 +227,63 @@ public class SelectWeekHandler
 
         foreach (var day in proposal.Days)
         {
-            lines.Add($"📅 {day.DayOfWeek} ({day.Date:MMM dd}):");
-            foreach (var dish in day.Dishes)
-            {
-                var emoji = dish.MealCategory.ToLower() switch
-                {
-                    "meal" => "🍽",
-                    "breakfast" => "🥣",
-                    "snack" => "🍎",
-                    _ => "🍽"
-                };
-                lines.Add($"  {emoji} {dish.SlotIndex + 1}. {dish.DishName} ({dish.ProteinOption}) \u2014 {dish.Kcal:F0} kcal | P:{dish.Protein:F0} C:{dish.Carb:F0} F:{dish.Fat:F0}");
-            }
-
-            // Compact daily summary
-            var dayTotal = $"  {day.TotalKcal:F0} kcal | P:{day.TotalProtein:F0} C:{day.TotalCarb:F0} F:{day.TotalFat:F0}";
-            if (hasGoals)
-            {
-                var pDiff = day.TotalProtein - (proteinGoal ?? 0);
-                var cDiff = day.TotalCarb - (carbGoal ?? 0);
-                var fDiff = day.TotalFat - (fatGoal ?? 0);
-                dayTotal += $" (goal: {TelegramFormatHelper.FormatDiff(pDiff)}P {TelegramFormatHelper.FormatDiff(cDiff)}C {TelegramFormatHelper.FormatDiff(fDiff)}F)";
-            }
-            lines.Add(dayTotal);
+            FormatDayOverview(lines, day, hasGoals, proteinGoal, carbGoal, fatGoal);
             lines.Add("");
         }
 
-        // Week summary
         if (proposal.Days.Count > 0)
-        {
-            var hasOriginal = proposal.Days.Any(d => d.OriginalKcal > 0);
-            if (hasOriginal)
-            {
-                var origAvgP = proposal.Days.Average(d => d.OriginalProtein);
-                var origAvgC = proposal.Days.Average(d => d.OriginalCarb);
-                var origAvgF = proposal.Days.Average(d => d.OriginalFat);
-                var origAvgK = proposal.Days.Average(d => d.OriginalKcal);
-                lines.Add($"Week avg WAS: {origAvgK:F0} kcal | P:{origAvgP:F0} C:{origAvgC:F0} F:{origAvgF:F0}");
-            }
-            var avgKcal = proposal.Days.Average(d => d.TotalKcal);
-            var avgP = proposal.Days.Average(d => d.TotalProtein);
-            var avgC = proposal.Days.Average(d => d.TotalCarb);
-            var avgF = proposal.Days.Average(d => d.TotalFat);
-            lines.Add($"Week avg NOW: {avgKcal:F0} kcal | P:{avgP:F0} C:{avgC:F0} F:{avgF:F0}");
-            if (hasGoals)
-            {
-                lines.Add($"vs Goal:      {TelegramFormatHelper.FormatDiff(avgP - (proteinGoal ?? 0))}P {TelegramFormatHelper.FormatDiff(avgC - (carbGoal ?? 0))}C {TelegramFormatHelper.FormatDiff(avgF - (fatGoal ?? 0))}F");
-            }
-        }
+            FormatWeekSummary(lines, proposal, hasGoals, proteinGoal, carbGoal, fatGoal);
 
         return string.Join("\n", lines);
     }
 
+    private static void FormatDayOverview(List<string> lines, DayProposal day,
+        bool hasGoals, double? proteinGoal, double? carbGoal, double? fatGoal)
+    {
+        lines.Add($"📅 {day.DayOfWeek} ({day.Date:MMM dd}):");
+        foreach (var dish in day.Dishes)
+        {
+            var emoji = dish.MealCategory.ToLower() switch
+            {
+                "meal" => "🍽",
+                "breakfast" => "🥣",
+                "snack" => "🍎",
+                _ => "🍽"
+            };
+            lines.Add($"  {emoji} {dish.SlotIndex + 1}. {dish.DishName} ({dish.ProteinOption}) \u2014 {dish.Kcal:F0} kcal | P:{dish.Protein:F0} C:{dish.Carb:F0} F:{dish.Fat:F0}");
+        }
+
+        var dayTotal = $"  {day.TotalKcal:F0} kcal | P:{day.TotalProtein:F0} C:{day.TotalCarb:F0} F:{day.TotalFat:F0}";
+        if (hasGoals)
+        {
+            var pDiff = day.TotalProtein - (proteinGoal ?? 0);
+            var cDiff = day.TotalCarb - (carbGoal ?? 0);
+            var fDiff = day.TotalFat - (fatGoal ?? 0);
+            dayTotal += $" (goal: {TelegramFormatHelper.FormatDiff(pDiff)}P {TelegramFormatHelper.FormatDiff(cDiff)}C {TelegramFormatHelper.FormatDiff(fDiff)}F)";
+        }
+        lines.Add(dayTotal);
+    }
+
+    private static void FormatWeekSummary(List<string> lines, WeeklyProposal proposal,
+        bool hasGoals, double? proteinGoal, double? carbGoal, double? fatGoal)
+    {
+        var hasOriginal = proposal.Days.Any(d => d.OriginalKcal > 0);
+        if (hasOriginal)
+        {
+            var origAvgP = proposal.Days.Average(d => d.OriginalProtein);
+            var origAvgC = proposal.Days.Average(d => d.OriginalCarb);
+            var origAvgF = proposal.Days.Average(d => d.OriginalFat);
+            var origAvgK = proposal.Days.Average(d => d.OriginalKcal);
+            lines.Add($"Week avg WAS: {origAvgK:F0} kcal | P:{origAvgP:F0} C:{origAvgC:F0} F:{origAvgF:F0}");
+        }
+        var avgKcal = proposal.Days.Average(d => d.TotalKcal);
+        var avgP = proposal.Days.Average(d => d.TotalProtein);
+        var avgC = proposal.Days.Average(d => d.TotalCarb);
+        var avgF = proposal.Days.Average(d => d.TotalFat);
+        lines.Add($"Week avg NOW: {avgKcal:F0} kcal | P:{avgP:F0} C:{avgC:F0} F:{avgF:F0}");
+        if (hasGoals)
+        {
+            lines.Add($"vs Goal:      {TelegramFormatHelper.FormatDiff(avgP - (proteinGoal ?? 0))}P {TelegramFormatHelper.FormatDiff(avgC - (carbGoal ?? 0))}C {TelegramFormatHelper.FormatDiff(avgF - (fatGoal ?? 0))}F");
+        }
+    }
 }

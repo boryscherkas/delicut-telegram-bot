@@ -61,7 +61,7 @@ public class MenuFetchService : IMenuFetchService
                 var cacheKey = $"menu:{day.Date}:{category}";
                 try
                 {
-                    menu = await CallApiSafeAsync(() =>
+                    menu = await ApiCallHelper.CallApiSafeAsync(() =>
                         _delicutApi.FetchMenuAsync(user.DelicutToken!, day.DeliveryId, mealSlot.ApiCategory, uniqueIdForFetch));
                     state.FlowData[cacheKey] = menu;
                 }
@@ -104,15 +104,4 @@ public class MenuFetchService : IMenuFetchService
         };
     }
 
-    private async Task<T> CallApiSafeAsync<T>(Func<Task<T>> apiCall)
-    {
-        try
-        {
-            return await apiCall();
-        }
-        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-        {
-            throw new DelicutAuthExpiredException("Delicut token expired or invalid.", ex);
-        }
-    }
 }

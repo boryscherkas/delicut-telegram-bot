@@ -5,6 +5,17 @@ namespace DelicutTelegramBot.Services;
 
 public class FallbackSelectionService : IFallbackSelectionService
 {
+    // Scoring weights for the final composite score
+    private const double StrategyWeight = 0.4;
+    private const double VarietyWeight = 0.3;
+    private const double FavouriteWeight = 0.3;
+
+    // Macro priority weights: first macro gets highest weight, then descending
+    private static readonly double[] MacroPriorityWeights = [0.5, 0.3, 0.2];
+
+    // Variety penalties: reduce score for repeated cuisines/dishes within a day
+    private const double RepeatedCuisinePenalty = 0.3;
+    private const double RepeatedDishPenalty = 0.6;
     public AiSelectionResult Select(
         List<DishSummary> dishes,
         SelectionStrategy strategy,
@@ -137,14 +148,11 @@ public class FallbackSelectionService : IFallbackSelectionService
                 ["f"] = fatGoal > 0 ? dish.Fat / maxFat : 0.5,
             };
 
-            // Priority weights: 0.5, 0.3, 0.2
-            var baseWeights = new[] { 0.5, 0.3, 0.2 };
-
             strategyScore = 0;
-            for (int i = 0; i < macroPriority.Count && i < baseWeights.Length; i++)
+            for (int i = 0; i < macroPriority.Count && i < MacroPriorityWeights.Length; i++)
             {
                 if (relativeScores.TryGetValue(macroPriority[i], out var s))
-                    strategyScore += s * baseWeights[i];
+                    strategyScore += s * MacroPriorityWeights[i];
             }
         }
         else
@@ -165,12 +173,11 @@ public class FallbackSelectionService : IFallbackSelectionService
         // Variety penalty
         double varietyScore = 1.0;
         if (usedCuisines.Contains(dish.Cuisine))
-            varietyScore -= 0.3;
+            varietyScore -= RepeatedCuisinePenalty;
         if (usedDishNames.Contains(dish.Name))
-            varietyScore -= 0.6;
+            varietyScore -= RepeatedDishPenalty;
         varietyScore = Math.Max(varietyScore, 0.0);
 
-        // Weights: strategy 0.4, variety 0.3, favourites 0.3
-        return strategyScore * 0.4 + varietyScore * 0.3 + favouriteScore * 0.3;
+        return strategyScore * StrategyWeight + varietyScore * VarietyWeight + favouriteScore * FavouriteWeight;
     }
 }

@@ -5,6 +5,8 @@ namespace DelicutTelegramBot.Helpers;
 
 public static class KeyboardBuilder
 {
+    /// <summary>Telegram API maximum characters per message.</summary>
+    private const int TelegramMaxMessageLength = 4096;
     /// <summary>
     /// Returns the standard week overview keyboard with Approve All, Approve Day, Change Dishes, Regenerate.
     /// </summary>
@@ -47,13 +49,13 @@ public static class KeyboardBuilder
     public static async Task SendOrSplitMessageAsync(ITelegramBotClient bot, long chatId, string text,
         InlineKeyboardMarkup keyboard, CancellationToken ct)
     {
-        if (text.Length <= 4096)
+        if (text.Length <= TelegramMaxMessageLength)
         {
             await bot.SendMessage(chatId, text, replyMarkup: keyboard, cancellationToken: ct);
         }
         else
         {
-            var chunks = TelegramFormatHelper.SplitMessage(text, 4096);
+            var chunks = TelegramFormatHelper.SplitMessage(text, TelegramMaxMessageLength);
             for (int i = 0; i < chunks.Count - 1; i++)
                 await bot.SendMessage(chatId, chunks[i], cancellationToken: ct);
             await bot.SendMessage(chatId, chunks[^1], replyMarkup: keyboard, cancellationToken: ct);
