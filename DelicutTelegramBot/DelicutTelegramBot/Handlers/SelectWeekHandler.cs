@@ -185,7 +185,9 @@ public class SelectWeekHandler
             return;
         }
 
-        var dayKeyboard = new InlineKeyboardMarkup(buttons.Chunk(3));
+        var rows = buttons.Chunk(3).ToList();
+        rows.Add([InlineKeyboardButton.WithCallbackData("Back", "select:show_week")]);
+        var dayKeyboard = new InlineKeyboardMarkup(rows);
         await _bot.SendMessage(chatId, "Which day to submit? (only days with changes shown)", replyMarkup: dayKeyboard, cancellationToken: ct);
     }
 
