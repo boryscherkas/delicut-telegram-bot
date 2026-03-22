@@ -203,7 +203,7 @@ public class MenuSelectionService : IMenuSelectionService
                 {
                     weekResult = aiResult;
 
-                    // Validate: check each day has correct pick count
+                    // Validate completeness: each day has correct pick count
                     var picksByDay = weekResult.Picks.GroupBy(p => p.Date)
                         .ToDictionary(g => g.Key, g => g.Count());
                     var incompleteDays = expectedPerDay
@@ -211,15 +211,29 @@ public class MenuSelectionService : IMenuSelectionService
                         .Select(kv => kv.Key)
                         .ToList();
 
-                    if (incompleteDays.Count == 0)
+                    // Validate variety: no dish on more than 2 days
+                    var dishDayCount = weekResult.Picks
+                        .GroupBy(p => p.DishId)
+                        .Where(g => g.Select(p => p.Date).Distinct().Count() > 2)
+                        .Select(g => g.Key)
+                        .ToList();
+
+                    var isComplete = incompleteDays.Count == 0;
+                    var hasGoodVariety = dishDayCount.Count == 0;
+
+                    if (isComplete && hasGoodVariety)
                     {
-                        _logger.LogInformation("AI attempt {Attempt}: all {Days} days complete ({Picks} picks)",
+                        _logger.LogInformation("AI attempt {Attempt}: all {Days} days complete, good variety ({Picks} picks)",
                             attempt, expectedPerDay.Count, weekResult.Picks.Count);
                         break;
                     }
 
-                    _logger.LogWarning("AI attempt {Attempt}: {Incomplete}/{Total} days incomplete: [{Days}]",
-                        attempt, incompleteDays.Count, expectedPerDay.Count, string.Join(", ", incompleteDays));
+                    if (!isComplete)
+                        _logger.LogWarning("AI attempt {Attempt}: {Incomplete}/{Total} days incomplete",
+                            attempt, incompleteDays.Count, expectedPerDay.Count);
+                    if (!hasGoodVariety)
+                        _logger.LogWarning("AI attempt {Attempt}: poor variety — dishes on >2 days: [{Dishes}]",
+                            attempt, string.Join(", ", dishDayCount));
 
                     if (attempt == maxRetries)
                         _logger.LogWarning("Max retries reached, will fill missing days with fallback");

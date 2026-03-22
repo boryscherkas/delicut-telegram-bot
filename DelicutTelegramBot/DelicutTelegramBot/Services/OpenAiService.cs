@@ -208,12 +208,12 @@ public class OpenAiService : IOpenAiService
         // Variety section
         var varietyNote = """
 
-            VARIETY RULES:
-            - STRONGLY avoid selecting the same dish on consecutive days (e.g., Mon and Tue).
-            - Avoid same dish more than twice per week (unless it's a favourite with minimum count).
-            - Vary cuisines across consecutive days.
-            - Exception: if a dish is a user favourite AND hasn't met its weekly minimum,
-              it's OK to repeat it on non-consecutive days.
+            VARIETY RULES (STRICT):
+            - NEVER put the same dish on more than 2 days in the week.
+            - NEVER put the same dish on consecutive days (Mon+Tue = BAD).
+            - Each day should have a UNIQUE set of dishes — no two days should be identical.
+            - Vary cuisines: don't pick 3 dishes of the same cuisine on one day.
+            - Exception ONLY for user favourites that need minimum weekly appearances.
             """;
 
         return $"""
@@ -234,9 +234,15 @@ public class OpenAiService : IOpenAiService
             4. Each pick MUST include "date" matching the day it's for.
             {varietyNote}
 
+            CRITICAL RULES:
+            - Do NOT repeat the same dish on every day. A dish should appear at most 2-3 times per week.
+            - Each day MUST have a DIFFERENT combination of dishes from the other days.
+            - Prioritize hitting the carb goal (c) — pick dishes with the highest "c" values.
+            - After picking, verify: sum of "c" for each day should be as close to {request.CarbGoalGrams ?? 0} as possible.
+
             Think holistically about the WHOLE WEEK:
             - Balance macros across all days, not just per-day.
-            - Maximize variety across the week.
+            - Maximize variety across the week — use different dishes each day.
             - If one day can't hit the macro target, compensate on other days.
 
             Respond ONLY with valid JSON matching the required schema.
