@@ -287,16 +287,15 @@ public class ChangeDishHandler
         var dateStr = data["change:confirm:".Length..];
         var date = DateOnly.Parse(dateStr);
 
-        await _menuService.ConfirmDayAsync(dbUserId, date);
         try
         {
-            await _menuService.ConfirmWeekAsync(dbUserId);
+            await _menuService.SubmitDayAsync(dbUserId, date);
             await _bot.SendMessage(chatId, $"Day {date:MMM dd} submitted to Delicut!",
                 cancellationToken: ct);
         }
         catch (Exception ex)
         {
-            await _bot.SendMessage(chatId, $"Day {date:MMM dd} confirmed but failed to submit: {ex.Message}",
+            await _bot.SendMessage(chatId, $"Failed to submit {date:MMM dd}: {ex.Message}",
                 cancellationToken: ct);
         }
 

@@ -97,36 +97,51 @@ public class SelectWeekHandler
         var dbUserId = (Guid)state.FlowData["user_id"];
         var proposal = (WeeklyProposal)state.FlowData["proposal"];
 
+        var failed = new List<string>();
         foreach (var day in proposal.Days)
-            await _menuService.ConfirmDayAsync(dbUserId, day.Date);
+        {
+            try
+            {
+                await _menuService.SubmitDayAsync(dbUserId, day.Date);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to submit {Date}", day.Date);
+                failed.Add(day.Date.ToString("MMM dd"));
+            }
+        }
 
-        try
-        {
-            await _menuService.ConfirmWeekAsync(dbUserId);
-            _stateManager.Reset(userId);
-            await _bot.SendMessage(chatId, "All dishes confirmed and submitted!", cancellationToken: ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to submit week for user {UserId}", dbUserId);
-            await _bot.SendMessage(chatId, $"Some days failed to submit. Try /select again.\n{ex.Message}", cancellationToken: ct);
-        }
+        _stateManager.Reset(userId);
+        if (failed.Count == 0)
+            await _bot.SendMessage(chatId, "All dishes submitted to Delicut!", cancellationToken: ct);
+        else
+            await _bot.SendMessage(chatId, $"Submitted with errors. Failed days: {string.Join(", ", failed)}", cancellationToken: ct);
     }
 
     private async Task HandleSubmitConfirmedAsync(long chatId, long userId, ConversationState state, CancellationToken ct)
     {
         var dbUserId = (Guid)state.FlowData["user_id"];
-        try
+        var proposal = (WeeklyProposal)state.FlowData["proposal"];
+
+        var failed = new List<string>();
+        foreach (var day in proposal.Days)
         {
-            await _menuService.ConfirmWeekAsync(dbUserId);
-            _stateManager.Reset(userId);
-            await _bot.SendMessage(chatId, "Confirmed dishes submitted to Delicut!", cancellationToken: ct);
+            try
+            {
+                await _menuService.SubmitDayAsync(dbUserId, day.Date);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to submit {Date}", day.Date);
+                failed.Add(day.Date.ToString("MMM dd"));
+            }
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to submit confirmed days for user {UserId}", dbUserId);
-            await _bot.SendMessage(chatId, $"Some days failed to submit. Try again.\n{ex.Message}", cancellationToken: ct);
-        }
+
+        _stateManager.Reset(userId);
+        if (failed.Count == 0)
+            await _bot.SendMessage(chatId, "All confirmed dishes submitted to Delicut!", cancellationToken: ct);
+        else
+            await _bot.SendMessage(chatId, $"Submitted with errors. Failed: {string.Join(", ", failed)}", cancellationToken: ct);
     }
 
     private async Task HandleRegenerateAsync(long chatId, long userId, ConversationState state, CancellationToken ct)
@@ -171,10 +186,9 @@ public class SelectWeekHandler
         var date = DateOnly.Parse(dateStr);
         var dbUserId = (Guid)state.FlowData["user_id"];
 
-        await _menuService.ConfirmDayAsync(dbUserId, date);
         try
         {
-            await _menuService.ConfirmWeekAsync(dbUserId);
+            await _menuService.SubmitDayAsync(dbUserId, date);
             await _bot.SendMessage(chatId, $"{date:ddd MMM dd} submitted to Delicut!", cancellationToken: ct);
         }
         catch (Exception ex)
