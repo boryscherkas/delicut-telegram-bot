@@ -168,10 +168,24 @@ public class MenuSelectionService : IMenuSelectionService
         var user = await _db.Users.FirstAsync(u => u.Id == userId);
 
         var pending = await _db.PendingSelections
-            .FirstAsync(p => p.UserId == userId
+            .FirstOrDefaultAsync(p => p.UserId == userId
                 && p.DeliveryDate == date
                 && p.MealCategory == mealCategory
                 && p.SlotIndex == slotIndex);
+
+        if (pending is null)
+        {
+            // Log what's actually in the DB for debugging
+            var allForDay = await _db.PendingSelections
+                .Where(p => p.UserId == userId && p.DeliveryDate == date)
+                .Select(p => new { p.MealCategory, p.SlotIndex, p.DishName })
+                .ToListAsync();
+            _logger.LogError("PendingSelection not found: date={Date} cat={Category} slot={SlotIndex}. " +
+                "DB has: [{Existing}]", date, mealCategory, slotIndex,
+                string.Join(", ", allForDay.Select(p => $"{p.MealCategory}:{p.SlotIndex}={p.DishName}")));
+            throw new InvalidOperationException(
+                $"No pending selection found for {date} {mealCategory} slot {slotIndex}");
+        }
 
         var state = _stateManager.GetOrCreate(user.TelegramUserId);
         var cacheKey = $"menu:{date}:{mealCategory}";

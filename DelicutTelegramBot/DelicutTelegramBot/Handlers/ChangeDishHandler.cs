@@ -67,17 +67,18 @@ public class ChangeDishHandler
         state.LastActivity = DateTime.UtcNow;
 
         var lines = new List<string> { $"Dishes for {day.DayOfWeek} ({day.Date:MMM dd}):", "" };
-        foreach (var d in day.Dishes)
+        for (var i = 0; i < day.Dishes.Count; i++)
         {
-            lines.Add($"  {d.SlotIndex + 1}. {d.DishName} ({d.ProteinOption})");
+            var d = day.Dishes[i];
+            lines.Add($"  {i + 1}. {d.DishName} ({d.ProteinOption})");
             lines.Add($"     {d.Kcal:F0} kcal | P:{d.Protein:F0} C:{d.Carb:F0} F:{d.Fat:F0}");
         }
         lines.Add($"\nDay total: {day.TotalKcal:F0} kcal | P:{day.TotalProtein:F0} C:{day.TotalCarb:F0} F:{day.TotalFat:F0}");
         lines.Add("\nTap a dish to change:");
 
-        var buttons = day.Dishes.Select(d =>
+        var buttons = day.Dishes.Select((d, i) =>
             new[] { InlineKeyboardButton.WithCallbackData(
-                $"{d.SlotIndex + 1}. {d.DishName}",
+                $"{i + 1}. {d.DishName}",
                 $"change:dish:{date:yyyy-MM-dd}:{d.MealCategory}:{d.SlotIndex}") })
             .ToList();
         buttons.Add([InlineKeyboardButton.WithCallbackData("Back", "select:change")]);
