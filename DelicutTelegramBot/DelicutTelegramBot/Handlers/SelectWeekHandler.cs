@@ -181,6 +181,38 @@ public class SelectWeekHandler
                 await _bot.SendMessage(chatId, chunks[^1], replyMarkup: newKeyboard, cancellationToken: ct);
             }
         }
+        else if (data == "select:show_week")
+        {
+            var proposal = (WeeklyProposal)state.FlowData["proposal"];
+            var user = await _userService.GetByTelegramIdAsync(userId);
+            var weekText = FormatWeekOverview(proposal,
+                user?.Settings?.ProteinGoalGrams, user?.Settings?.CarbGoalGrams, user?.Settings?.FatGoalGrams);
+
+            var weekKeyboard = new InlineKeyboardMarkup(new[]
+            {
+                new[]
+                {
+                    InlineKeyboardButton.WithCallbackData("Approve All", "select:approve_all"),
+                    InlineKeyboardButton.WithCallbackData("Change Dishes", "select:change")
+                },
+                new[]
+                {
+                    InlineKeyboardButton.WithCallbackData("Regenerate", "select:regenerate")
+                }
+            });
+
+            if (weekText.Length <= 4096)
+            {
+                await _bot.SendMessage(chatId, weekText, replyMarkup: weekKeyboard, cancellationToken: ct);
+            }
+            else
+            {
+                var chunks = SplitMessage(weekText, 4096);
+                for (int i = 0; i < chunks.Count - 1; i++)
+                    await _bot.SendMessage(chatId, chunks[i], cancellationToken: ct);
+                await _bot.SendMessage(chatId, chunks[^1], replyMarkup: weekKeyboard, cancellationToken: ct);
+            }
+        }
         else if (data == "select:change")
         {
             state.CurrentFlow = ConversationFlow.Select_PickingDay;

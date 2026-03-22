@@ -257,6 +257,14 @@ public class DelicutApiService : IDelicutApiService
         // API accepts one dish at a time via POST /v2/delivery/add-recipe
         foreach (var dish in selections)
         {
+            // Guard: protein_category must not be empty
+            var proteinCat = dish.ProteinCategory;
+            if (string.IsNullOrEmpty(proteinCat))
+            {
+                proteinCat = "balance"; // Safe default
+                _logger.LogWarning("Empty protein_category for dish {DishId}, defaulting to 'balance'", dish.DishId);
+            }
+
             var payload = new
             {
                 type = dish.MealCategory.ToLower(),
@@ -266,14 +274,17 @@ public class DelicutApiService : IDelicutApiService
                 variant = dish.ProteinOption,
                 size = dish.Size,
                 unique_id = uniqueId,
-                protein_category = dish.ProteinCategory
+                protein_category = proteinCat
             };
 
-            var response = await client.PostAsJsonAsync($"{_baseUrl}/v2/delivery/add-recipe", payload);
+            var payloadJson = JsonSerializer.Serialize(payload);
+            _logger.LogDebug("Submitting dish: {Payload}", payloadJson);
+
+            var response = await PostJsonRawAsync(client, $"{_baseUrl}/v2/delivery/add-recipe", payloadJson);
             await EnsureSuccess(response);
 
-            _logger.LogInformation("Submitted dish {DishId} ({Variant}/{Size}) for delivery {DeliveryId}",
-                dish.DishId, dish.ProteinOption, dish.Size, deliveryId);
+            _logger.LogInformation("Submitted dish {DishId} ({Variant}/{Size}/{ProteinCat}) for delivery {DeliveryId}",
+                dish.DishId, dish.ProteinOption, dish.Size, dish.ProteinCategory, deliveryId);
         }
     }
 

@@ -228,6 +228,10 @@ public class ChangeDishHandler
                 {
                     InlineKeyboardButton.WithCallbackData("Confirm Day", $"change:confirm:{date:yyyy-MM-dd}"),
                     InlineKeyboardButton.WithCallbackData("Change Another", $"change:day:{date:yyyy-MM-dd}")
+                },
+                new[]
+                {
+                    InlineKeyboardButton.WithCallbackData("Show Full Week", "select:show_week")
                 }
             });
             await _bot.SendMessage(chatId, string.Join("\n", lines), replyMarkup: keyboard, cancellationToken: ct);
