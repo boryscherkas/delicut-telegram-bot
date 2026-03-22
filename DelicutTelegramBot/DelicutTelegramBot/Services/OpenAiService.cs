@@ -9,17 +9,22 @@ namespace DelicutTelegramBot.Services;
 
 public class OpenAiService : IOpenAiService
 {
-    private readonly ChatClient _client;
+    private readonly ChatClient? _client;
     private readonly ILogger<OpenAiService> _logger;
 
     public OpenAiService(IOptions<OpenAiOptions> options, ILogger<OpenAiService> logger)
     {
-        _client = new ChatClient(options.Value.Model, options.Value.ApiKey);
         _logger = logger;
+        if (!string.IsNullOrEmpty(options.Value.ApiKey))
+            _client = new ChatClient(options.Value.Model, options.Value.ApiKey);
+        else
+            _logger.LogWarning("OpenAI API key not configured — AI selection disabled");
     }
 
     public async Task<AiSelectionResult?> SelectDishesAsync(AiSelectionRequest request)
     {
+        if (_client is null) return null;
+
         try
         {
             var systemPrompt = BuildSystemPrompt(request);
