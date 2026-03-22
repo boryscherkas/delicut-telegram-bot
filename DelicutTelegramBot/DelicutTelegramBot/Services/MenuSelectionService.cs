@@ -619,9 +619,25 @@ public class MenuSelectionService : IMenuSelectionService
             });
         }
 
+        // Merge proposals for the same date (e.g., 2 meals + 1 breakfast = one day)
+        var mergedProposals = dayProposals
+            .GroupBy(d => d.Date)
+            .Select(g => new DayProposal
+            {
+                Date = g.Key,
+                DayOfWeek = g.First().DayOfWeek,
+                Dishes = g.SelectMany(d => d.Dishes).ToList(),
+                OriginalKcal = g.Sum(d => d.OriginalKcal),
+                OriginalProtein = g.Sum(d => d.OriginalProtein),
+                OriginalCarb = g.Sum(d => d.OriginalCarb),
+                OriginalFat = g.Sum(d => d.OriginalFat)
+            })
+            .OrderBy(d => d.Date)
+            .ToList();
+
         return new WeeklyProposal
         {
-            Days = dayProposals,
+            Days = mergedProposals,
             LockedDays = lockedDays.ToList()
         };
     }
