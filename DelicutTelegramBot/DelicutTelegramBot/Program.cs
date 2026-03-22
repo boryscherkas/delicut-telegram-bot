@@ -18,18 +18,6 @@ builder.Configuration.AddUserSecrets(typeof(Program).Assembly, optional: true);
 // Add environment variables AFTER appsettings so they override empty defaults.
 builder.Configuration.AddEnvironmentVariables();
 
-// Startup diagnostics — check what config sees
-var telegramToken = builder.Configuration["Telegram:BotToken"];
-var supabaseConn = builder.Configuration["Supabase:ConnectionString"];
-Console.WriteLine($"[Config] Telegram:BotToken = {(string.IsNullOrEmpty(telegramToken) ? "EMPTY/NULL" : $"set ({telegramToken.Length} chars)")}");
-Console.WriteLine($"[Config] Supabase:ConnectionString = {(string.IsNullOrEmpty(supabaseConn) ? "EMPTY/NULL" : $"set ({supabaseConn.Length} chars)")}");
-// Dump env vars with Telegram or Supabase in name
-foreach (var key in Environment.GetEnvironmentVariables().Keys.Cast<string>()
-    .Where(k => k.Contains("Telegram", StringComparison.OrdinalIgnoreCase) || k.Contains("Supabase", StringComparison.OrdinalIgnoreCase)))
-{
-    Console.WriteLine($"[Env] {key} = present ({Environment.GetEnvironmentVariable(key)?.Length ?? 0} chars)");
-}
-
 builder.Services.AddDelicutBot(builder.Configuration);
 
 var host = builder.Build();
@@ -47,6 +35,7 @@ if (!string.IsNullOrEmpty(connectionString))
 var bot = host.Services.GetRequiredService<ITelegramBotClient>();
 await bot.SetMyCommands([
     new Telegram.Bot.Types.BotCommand { Command = "select", Description = "Select meals for the week" },
+    new Telegram.Bot.Types.BotCommand { Command = "menu", Description = "Show Delicut's current selection" },
     new Telegram.Bot.Types.BotCommand { Command = "settings", Description = "Configure preferences" },
     new Telegram.Bot.Types.BotCommand { Command = "start", Description = "Authenticate with Delicut" },
     new Telegram.Bot.Types.BotCommand { Command = "cancel", Description = "Cancel current action" },
