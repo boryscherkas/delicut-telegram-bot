@@ -84,7 +84,8 @@ public class MenuSelectionService : IMenuSelectionService
         var macroPriority = (user.Settings?.MacroPriority ?? "p,c,f").Split(',').Select(s => s.Trim()).ToList();
         var weekRequest = BuildWeekRequest(user, dayMenuData, mealSlots, previousChoices, macroPriority);
         var expectedPerDay = dayMenuData
-            .ToDictionary(d => d.Day.Date.ToString(DateFormat), d => d.MealSlot.Count);
+            .GroupBy(d => d.Day.Date.ToString(DateFormat))
+            .ToDictionary(g => g.Key, g => g.Sum(d => d.MealSlot.Count));
 
         // Phase 3: AI or fallback selection
         var weekResult = await SelectDishesAsync(user, weekRequest, dayMenuData, expectedPerDay, macroPriority, regenerate);
