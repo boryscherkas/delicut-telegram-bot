@@ -42,13 +42,14 @@ public class OpenAiService : IOpenAiService
                                 "items": {
                                     "type": "object",
                                     "properties": {
+                                        "date": { "type": "string" },
                                         "dish_id": { "type": "string" },
                                         "protein_option": { "type": "string" },
                                         "meal_category": { "type": "string" },
                                         "slot_index": { "type": "integer" },
                                         "reasoning": { "type": "string" }
                                     },
-                                    "required": ["dish_id", "protein_option", "meal_category", "slot_index", "reasoning"],
+                                    "required": ["date", "dish_id", "protein_option", "meal_category", "slot_index", "reasoning"],
                                     "additionalProperties": false
                                 }
                             }
@@ -184,7 +185,10 @@ public class OpenAiService : IOpenAiService
 
         return $"""
             You are a meal selection assistant for a meal delivery service.
-            Select the best dishes for each meal slot.
+            You will receive a WEEK of menus — select the best dishes for ALL days at once.
+
+            The input has a "week_menu" array with each day's available dishes and how many meals are needed.
+            You must return picks for EVERY day. Each pick must include the "date" field (YYYY-MM-DD).
 
             Strategy: {strategyDesc}
             {macroGoals}
@@ -193,8 +197,14 @@ public class OpenAiService : IOpenAiService
             Rules:
             1. Do NOT use Delicut API ratings — ignore avg_rating and total_ratings fields.
             2. {historyNote}
-            3. Fill each meal slot with exactly the requested count
+            3. For each day, select exactly "meals_needed" dishes from that day's available_dishes.
+            4. Each pick MUST include "date" matching the day it's for.
             {varietyNote}
+
+            Think holistically about the WHOLE WEEK:
+            - Balance macros across all days, not just per-day.
+            - Maximize variety across the week.
+            - If one day can't hit the macro target, compensate on other days.
 
             Respond ONLY with valid JSON matching the required schema.
             """;

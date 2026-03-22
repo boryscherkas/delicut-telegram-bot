@@ -144,13 +144,14 @@ public class MenuSelectionServiceTests : IDisposable
         ]
     };
 
-    private static AiSelectionResult MakeAiResult(string dishId, string proteinOption = "chicken", string category = "lunch") =>
+    private static AiSelectionResult MakeAiResult(string dishId, string? date = null, string proteinOption = "chicken", string category = "meal") =>
         new()
         {
             Picks =
             [
                 new AiDishPick
                 {
+                    Date = date ?? DateOnly.FromDateTime(DateTime.Today.AddDays(3)).ToString("yyyy-MM-dd"),
                     DishId = dishId,
                     ProteinOption = proteinOption,
                     MealCategory = category,
@@ -189,10 +190,10 @@ public class MenuSelectionServiceTests : IDisposable
         _db.PendingSelections.Add(existingProposal);
         await _db.SaveChangesAsync();
 
-        var today = DateOnly.FromDateTime(DateTime.Today);
+        var futureDate = DateOnly.FromDateTime(DateTime.Today.AddDays(3));
         var dish = MakeDish("dish-1", "Grilled Chicken");
         var subscription = MakeSubscription();
-        var schedule = MakeSchedule(MakeDeliveryDay(today));
+        var schedule = MakeSchedule(MakeDeliveryDay(futureDate));
 
         _delicutApi.Setup(a => a.GetSubscriptionDetailsAsync(It.IsAny<string>()))
             .ReturnsAsync(subscription);
@@ -203,7 +204,7 @@ public class MenuSelectionServiceTests : IDisposable
         _dishFilter.Setup(f => f.Filter(It.IsAny<List<Dish>>(), It.IsAny<List<string>>(), It.IsAny<List<string>>(), It.IsAny<List<string>>(), It.IsAny<string>(), It.IsAny<string>()))
             .Returns([dish]);
         _openAi.Setup(ai => ai.SelectDishesAsync(It.IsAny<AiSelectionRequest>()))
-            .ReturnsAsync(MakeAiResult("dish-1"));
+            .ReturnsAsync(MakeAiResult("dish-1", futureDate.ToString("yyyy-MM-dd")));
         _history.Setup(h => h.GetPreviousChoiceNamesAsync(It.IsAny<Guid>(), It.IsAny<int>()))
             .ReturnsAsync([]);
 
@@ -228,10 +229,8 @@ public class MenuSelectionServiceTests : IDisposable
         _db.Users.Add(user);
         await _db.SaveChangesAsync();
 
-        var today = DateOnly.FromDateTime(DateTime.Today);
-        var tomorrow = today.AddDays(1);
-        var lockedDay = today;
-        var openDay = tomorrow;
+        var lockedDay = DateOnly.FromDateTime(DateTime.Today);
+        var openDay = DateOnly.FromDateTime(DateTime.Today.AddDays(3));
 
         var dish = MakeDish("dish-1", "Grilled Chicken");
         var subscription = MakeSubscription();
@@ -248,7 +247,7 @@ public class MenuSelectionServiceTests : IDisposable
         _dishFilter.Setup(f => f.Filter(It.IsAny<List<Dish>>(), It.IsAny<List<string>>(), It.IsAny<List<string>>(), It.IsAny<List<string>>(), It.IsAny<string>(), It.IsAny<string>()))
             .Returns([dish]);
         _openAi.Setup(ai => ai.SelectDishesAsync(It.IsAny<AiSelectionRequest>()))
-            .ReturnsAsync(MakeAiResult("dish-1"));
+            .ReturnsAsync(MakeAiResult("dish-1", openDay.ToString("yyyy-MM-dd")));
         _history.Setup(h => h.GetPreviousChoiceNamesAsync(It.IsAny<Guid>(), It.IsAny<int>()))
             .ReturnsAsync([]);
 

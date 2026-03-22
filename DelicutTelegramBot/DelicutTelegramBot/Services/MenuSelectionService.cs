@@ -90,19 +90,15 @@ public class MenuSelectionService : IMenuSelectionService
         var state = _stateManager.GetOrCreate(user.TelegramUserId);
         var dayProposals = new List<DayProposal>();
         var lockedDays = new List<DateOnly>();
-        var weekContext = new Dictionary<string, List<string>>();
+
+        // ── Phase 1: Fetch and filter menus for all unlocked days ──
+        var dayMenuData = new List<(DeliveryDay Day, List<Dish> Filtered, List<DishSummary> Summaries,
+            Dictionary<string, List<DeliverySlot>> SlotsByCategory, MealSlot MealSlot)>();
 
         foreach (var day in schedule.Days)
         {
-            if (day.IsLocked)
-            {
-                lockedDays.Add(day.Date);
-                continue;
-            }
+            if (day.IsLocked) { lockedDays.Add(day.Date); continue; }
 
-            var dayDishes = new List<ProposedDish>();
-
-            // Group slots by meal category to fetch menu once per category
             var slotsByCategory = day.Slots
                 .GroupBy(s => s.MealCategory.ToLower())
                 .ToDictionary(g => g.Key, g => g.ToList());
@@ -113,165 +109,156 @@ public class MenuSelectionService : IMenuSelectionService
                 var mealTypeInfo = subscription.MealTypes
                     .FirstOrDefault(mt => mt.MealCategory.Equals(category, StringComparison.OrdinalIgnoreCase));
 
-                // Get the first slot's UniqueId for menu fetch (all slots in same category share the same menu)
                 var firstSlot = slotsByCategory.GetValueOrDefault(category)?.FirstOrDefault();
                 var uniqueIdForFetch = firstSlot?.UniqueId ?? string.Empty;
 
                 if (string.IsNullOrEmpty(uniqueIdForFetch))
                 {
-                    _logger.LogWarning(
-                        "No UniqueId found for {Date} category '{Category}'. " +
-                        "Slots: {SlotCount}, categories in slots: [{SlotCategories}]",
-                        day.Date, category, day.Slots.Count,
-                        string.Join(", ", day.Slots.Select(s => s.MealCategory)));
+                    _logger.LogWarning("No UniqueId for {Date} category '{Category}'", day.Date, category);
                     continue;
                 }
 
-                // Fetch menu for this day + category
                 List<Dish> menu;
                 var cacheKey = $"menu:{day.Date}:{category}";
                 try
                 {
-                    // Use ApiCategory (e.g. "lunch") for the API, not Category (e.g. "meal")
-                    _logger.LogDebug("Fetching menu: deliveryId={DeliveryId}, apiCategory={ApiCategory}, uniqueId={UniqueId}",
-                        day.DeliveryId, mealSlot.ApiCategory, uniqueIdForFetch);
                     menu = await CallApiSafeAsync(() =>
                         _delicutApi.FetchMenuAsync(user.DelicutToken!, day.DeliveryId, mealSlot.ApiCategory, uniqueIdForFetch));
                     state.FlowData[cacheKey] = menu;
                 }
-                catch (DelicutAuthExpiredException)
-                {
-                    throw;
-                }
+                catch (DelicutAuthExpiredException) { throw; }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Failed to fetch menu for {Date} {Category}", day.Date, category);
                     continue;
                 }
 
-                // Apply hard filters
-                var filtered = _dishFilterService.Filter(
-                    menu,
-                    user.Settings?.StopWords ?? [],
-                    subscription.AvoidIngredients,
-                    subscription.AvoidCategory,
-                    mealTypeInfo?.KcalRange ?? string.Empty,
-                    mealTypeInfo?.ProteinCategory ?? string.Empty);
+                var filtered = _dishFilterService.Filter(menu,
+                    user.Settings?.StopWords ?? [], subscription.AvoidIngredients, subscription.AvoidCategory,
+                    mealTypeInfo?.KcalRange ?? string.Empty, mealTypeInfo?.ProteinCategory ?? string.Empty);
 
-                // Convert to DishSummary — prefer user's protein variant if set
-                var dishSummaries = FlattenToDishSummaries(filtered, category,
-                    user.Settings?.PreferredProteinVariant);
+                var dishSummaries = FlattenToDishSummaries(filtered, category, user.Settings?.PreferredProteinVariant);
+                dayMenuData.Add((day, filtered, dishSummaries, slotsByCategory, mealSlot));
+            }
+        }
 
-                // Build AI selection request
-                var request = new AiSelectionRequest
+        // ── Phase 2: ONE AI call for the entire week ──
+        var weekMenu = dayMenuData.Select(d => new AiDayMenu
+        {
+            Date = d.Day.Date.ToString("yyyy-MM-dd"),
+            DayOfWeek = d.Day.DayOfWeek,
+            MealsNeeded = d.MealSlot.Count,
+            AvailableDishes = d.Summaries
+        }).ToList();
+
+        var weekRequest = new AiSelectionRequest
+        {
+            Strategy = user.Settings?.Strategy ?? SelectionStrategy.Default,
+            Date = dayMenuData.FirstOrDefault().Day?.Date ?? DateOnly.FromDateTime(DateTime.Today),
+            MealSlots = mealSlots,
+            AvailableDishes = [], // Not used — WeekMenu has per-day dishes
+            WeekMenu = weekMenu,
+            StopWords = user.Settings?.StopWords ?? [],
+            PreviousChoices = previousChoices,
+            PreferHistory = user.Settings?.PreferHistory ?? false,
+            WeekContext = new(),
+            MacroPriority = (user.Settings?.MacroPriority ?? "p,c,f").Split(',').Select(s => s.Trim()).ToList(),
+            ProteinGoalGrams = user.Settings?.ProteinGoalGrams,
+            CarbGoalGrams = user.Settings?.CarbGoalGrams,
+            FatGoalGrams = user.Settings?.FatGoalGrams,
+            PreferredProteinVariant = user.Settings?.PreferredProteinVariant,
+            FavouriteDishNames = user.Settings?.FavouriteDishNames ?? [],
+            MinFavouritesPerWeek = user.Settings?.MinFavouritesPerWeek ?? 0
+        };
+
+        _logger.LogInformation("Sending ONE AI request for {DayCount} days, {TotalDishes} total dishes",
+            weekMenu.Count, weekMenu.Sum(d => d.AvailableDishes.Count));
+
+        AiSelectionResult weekResult;
+        try
+        {
+            var aiResult = await _openAiService.SelectDishesAsync(weekRequest);
+            if (aiResult != null)
+            {
+                weekResult = aiResult;
+                _logger.LogInformation("AI selected {PickCount} dishes for the week", weekResult.Picks.Count);
+            }
+            else
+            {
+                _logger.LogWarning("AI returned null, using fallback for each day");
+                weekResult = new AiSelectionResult { Picks = [] };
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "AI failed, using fallback for each day");
+            weekResult = new AiSelectionResult { Picks = [] };
+        }
+
+        // ── Phase 3: Resolve AI picks into PendingSelections ──
+        var weekContext = new Dictionary<string, List<string>>();
+
+        foreach (var (day, filtered, dishSummaries, slotsByCategory, mealSlot) in dayMenuData)
+        {
+            var category = mealSlot.Category;
+            var dayPicks = weekResult.Picks
+                .Where(p => p.Date == day.Date.ToString("yyyy-MM-dd"))
+                .ToList();
+
+            // If AI didn't return picks for this day, use fallback
+            if (dayPicks.Count == 0)
+            {
+                _logger.LogInformation("Using fallback for {Date} (no AI picks)", day.Date);
+                var fallbackResult = _fallbackService.Select(dishSummaries, weekRequest.Strategy,
+                    [new MealSlot { Category = category, ApiCategory = mealSlot.ApiCategory, Count = mealSlot.Count }],
+                    weekContext, weekRequest.ProteinGoalGrams, weekRequest.CarbGoalGrams, weekRequest.FatGoalGrams,
+                    weekRequest.MacroPriority, weekRequest.FavouriteDishNames, weekRequest.MinFavouritesPerWeek);
+                dayPicks = fallbackResult.Picks;
+                // Set date on fallback picks
+                foreach (var p in dayPicks) p.Date = day.Date.ToString("yyyy-MM-dd");
+            }
+
+            var dayDishes = new List<ProposedDish>();
+            var firstSlot = slotsByCategory.GetValueOrDefault(category)?.FirstOrDefault();
+
+            foreach (var pick in dayPicks)
+            {
+                var dish = filtered.FirstOrDefault(d => d.Id == pick.DishId);
+                if (dish is null) { _logger.LogWarning("Dish {DishId} not found for {Date}", pick.DishId, day.Date); continue; }
+
+                var variant = dish.Variants.FirstOrDefault(v =>
+                    v.ProteinOption.Equals(pick.ProteinOption, StringComparison.OrdinalIgnoreCase));
+                if (variant is null && !string.IsNullOrEmpty(user.Settings?.PreferredProteinVariant))
+                    variant = dish.Variants.FirstOrDefault(v =>
+                        v.ProteinOption.Equals(user.Settings.PreferredProteinVariant, StringComparison.OrdinalIgnoreCase));
+                variant ??= dish.Variants.FirstOrDefault();
+                if (variant is null) continue;
+
+                var slotsForCategory = slotsByCategory.GetValueOrDefault(category);
+                var matchingSlot = slotsForCategory?.ElementAtOrDefault(pick.SlotIndex);
+                var slotUniqueId = matchingSlot?.UniqueId ?? firstSlot?.UniqueId ?? string.Empty;
+
+                var pending = new PendingSelection
                 {
-                    Strategy = user.Settings?.Strategy ?? SelectionStrategy.Default,
-                    Date = day.Date,
-                    MealSlots = [new MealSlot { Category = category, ApiCategory = mealSlot.ApiCategory, Count = mealSlot.Count }],
-                    AvailableDishes = dishSummaries,
-                    StopWords = user.Settings?.StopWords ?? [],
-                    PreviousChoices = previousChoices,
-                    PreferHistory = user.Settings?.PreferHistory ?? false,
-                    WeekContext = weekContext,
-                    MacroPriority = (user.Settings?.MacroPriority ?? "p,c,f")
-                        .Split(',').Select(s => s.Trim()).ToList(),
-                    ProteinGoalGrams = user.Settings?.ProteinGoalGrams,
-                    CarbGoalGrams = user.Settings?.CarbGoalGrams,
-                    FatGoalGrams = user.Settings?.FatGoalGrams,
-                    PreferredProteinVariant = user.Settings?.PreferredProteinVariant,
-                    FavouriteDishNames = user.Settings?.FavouriteDishNames ?? [],
-                    MinFavouritesPerWeek = user.Settings?.MinFavouritesPerWeek ?? 0
-                };
-
-                var proteinOptions = dishSummaries.Select(d => d.ProteinOption).Distinct().ToList();
-                _logger.LogInformation(
-                    "AI request for {Date} {Category}: {DishCount} dishes, strategy={Strategy}, " +
-                    "proteinVariants=[{Proteins}], macroGoals=P:{PGoal} C:{CGoal} F:{FGoal}",
-                    day.Date, category, dishSummaries.Count, request.Strategy,
-                    string.Join(",", proteinOptions),
-                    request.ProteinGoalGrams, request.CarbGoalGrams, request.FatGoalGrams);
-
-                // Try AI, fall back if null
-                AiSelectionResult result;
-                try
-                {
-                    var aiResult = await _openAiService.SelectDishesAsync(request);
-                    if (aiResult != null)
-                    {
-                        result = aiResult;
-                        _logger.LogInformation("AI selected for {Date}: [{Picks}]",
-                            day.Date, string.Join(", ", result.Picks.Select(p => $"{p.DishId}({p.ProteinOption})")));
-                    }
-                    else
-                    {
-                        _logger.LogWarning("AI selection returned null for {Date} {Category}, using fallback", day.Date, category);
-                        result = _fallbackService.Select(dishSummaries, request.Strategy, request.MealSlots, weekContext,
-                            request.ProteinGoalGrams, request.CarbGoalGrams, request.FatGoalGrams,
-                            request.MacroPriority, request.FavouriteDishNames, request.MinFavouritesPerWeek);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "AI selection failed for {Date} {Category}, using fallback", day.Date, category);
-                    result = _fallbackService.Select(dishSummaries, request.Strategy, request.MealSlots, weekContext,
-                            request.ProteinGoalGrams, request.CarbGoalGrams, request.FatGoalGrams,
-                            request.MacroPriority, request.FavouriteDishNames, request.MinFavouritesPerWeek);
-                }
-
-                // Create PendingSelection rows and ProposedDish entries
-                foreach (var pick in result.Picks)
-                {
-                    var dish = filtered.FirstOrDefault(d => d.Id == pick.DishId);
-                    if (dish is null)
-                    {
-                        _logger.LogWarning("AI picked dish {DishId} not found in filtered list for {Date} {Category}",
-                            pick.DishId, day.Date, category);
-                        continue;
-                    }
-
-                    // Try exact protein option match, fall back to preferred, then first variant
-                    var variant = dish.Variants.FirstOrDefault(v =>
-                        v.ProteinOption.Equals(pick.ProteinOption, StringComparison.OrdinalIgnoreCase));
-                    if (variant is null && !string.IsNullOrEmpty(user.Settings?.PreferredProteinVariant))
-                    {
-                        variant = dish.Variants.FirstOrDefault(v =>
-                            v.ProteinOption.Equals(user.Settings.PreferredProteinVariant, StringComparison.OrdinalIgnoreCase));
-                    }
-                    variant ??= dish.Variants.FirstOrDefault();
-
-                    if (variant is null)
-                    {
-                        _logger.LogWarning("Dish {DishId} ({DishName}) has no variants after filtering",
-                            dish.Id, dish.DishName);
-                        continue;
-                    }
-
-                    // Find the matching slot's UniqueId for this pick
-                    var slotsForCategory = slotsByCategory.GetValueOrDefault(category);
-                    var matchingSlot = slotsForCategory?.ElementAtOrDefault(pick.SlotIndex);
-                    var slotUniqueId = matchingSlot?.UniqueId ?? firstSlot?.UniqueId ?? string.Empty;
-
-                    var pending = new PendingSelection
-                    {
-                        Id = Guid.NewGuid(),
-                        UserId = userId,
-                        DeliveryDate = day.Date,
-                        DeliveryId = day.DeliveryId,
-                        UniqueId = slotUniqueId,
-                        MealCategory = pick.MealCategory,
-                        SlotIndex = pick.SlotIndex,
-                        DishId = pick.DishId,
-                        DishName = dish.DishName,
-                        VariantProtein = variant.ProteinOption,
-                        VariantSize = variant.Size,
-                        VariantProteinCategory = variant.ProteinCategory,
-                        Kcal = variant.Kcal,
-                        Protein = variant.Protein,
-                        Carb = variant.Carb,
-                        Fat = variant.Fat,
-                        Status = PendingSelectionStatus.Proposed,
-                        CreatedAt = DateTime.UtcNow,
-                        UpdatedAt = DateTime.UtcNow
+                    Id = Guid.NewGuid(),
+                    UserId = userId,
+                    DeliveryDate = day.Date,
+                    DeliveryId = day.DeliveryId,
+                    UniqueId = slotUniqueId,
+                    MealCategory = pick.MealCategory,
+                    SlotIndex = pick.SlotIndex,
+                    DishId = pick.DishId,
+                    DishName = dish.DishName,
+                    VariantProtein = variant.ProteinOption,
+                    VariantSize = variant.Size,
+                    VariantProteinCategory = variant.ProteinCategory,
+                    Kcal = variant.Kcal,
+                    Protein = variant.Protein,
+                    Carb = variant.Carb,
+                    Fat = variant.Fat,
+                    Status = PendingSelectionStatus.Proposed,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
                     };
                     _db.PendingSelections.Add(pending);
 
@@ -289,7 +276,6 @@ public class MenuSelectionService : IMenuSelectionService
                         AiReasoning = pick.Reasoning
                     });
                 }
-            }
 
             await _db.SaveChangesAsync();
 

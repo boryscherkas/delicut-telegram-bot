@@ -8,6 +8,9 @@ public class AiSelectionRequest
     public DateOnly Date { get; set; }
     public List<MealSlot> MealSlots { get; set; } = [];
     public List<DishSummary> AvailableDishes { get; set; } = [];
+
+    // Multi-day: when set, AI selects for the whole week in one call
+    public List<AiDayMenu>? WeekMenu { get; set; }
     public List<string> StopWords { get; set; } = [];
     public List<string> PreviousChoices { get; set; } = [];
     public bool PreferHistory { get; set; }
@@ -29,6 +32,14 @@ public class AiSelectionRequest
     public int MinFavouritesPerWeek { get; set; }
 }
 
+public class AiDayMenu
+{
+    public string Date { get; set; } = string.Empty;
+    public string DayOfWeek { get; set; } = string.Empty;
+    public int MealsNeeded { get; set; }
+    public List<DishSummary> AvailableDishes { get; set; } = [];
+}
+
 public class AiSelectionResult
 {
     public List<AiDishPick> Picks { get; set; } = [];
@@ -36,6 +47,7 @@ public class AiSelectionResult
 
 public class AiDishPick
 {
+    public string Date { get; set; } = string.Empty;  // "2026-03-24" — which day
     public string DishId { get; set; } = string.Empty;
     public string ProteinOption { get; set; } = string.Empty;
     public string MealCategory { get; set; } = string.Empty;
