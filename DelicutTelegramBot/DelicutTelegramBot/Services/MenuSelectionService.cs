@@ -327,18 +327,30 @@ public class MenuSelectionService : IMenuSelectionService
             return [];
         }
 
-        // Get currently selected dish IDs for this day
-        var selectedDishIds = await _db.PendingSelections
-            .Where(p => p.UserId == userId && p.DeliveryDate == date && p.Status == PendingSelectionStatus.Proposed)
+        // Get currently selected dish IDs for this day EXCEPT the one being replaced
+        var otherSelectedDishIds = await _db.PendingSelections
+            .Where(p => p.UserId == userId && p.DeliveryDate == date
+                && p.Status == PendingSelectionStatus.Proposed
+                && p.SlotIndex != slotIndex) // Keep the current slot's dish available
             .Select(p => p.DishId)
             .ToListAsync();
 
-        // Filter out already-selected dishes
-        var available = menu.Where(d => !selectedDishIds.Contains(d.Id)).ToList();
+        // Filter out only the OTHER selected dishes (not the one being swapped)
+        var available = menu.Where(d => !otherSelectedDishIds.Contains(d.Id)).ToList();
 
-        // Convert to DishSummary, sort by rating descending, take top 5
-        var alternatives = FlattenToDishSummaries(available, mealCategory)
-            .OrderByDescending(ds => ds.Rating)
+        // Also exclude the current dish in this slot (user wants a DIFFERENT dish)
+        var currentDishId = await _db.PendingSelections
+            .Where(p => p.UserId == userId && p.DeliveryDate == date
+                && p.MealCategory == mealCategory && p.SlotIndex == slotIndex)
+            .Select(p => p.DishId)
+            .FirstOrDefaultAsync();
+        if (currentDishId != null)
+            available = available.Where(d => d.Id != currentDishId).ToList();
+
+        // Convert to DishSummary, sort by carb content (most relevant for macro goals), take top 5
+        var alternatives = FlattenToDishSummaries(available, mealCategory,
+                user.Settings?.PreferredProteinVariant)
+            .OrderByDescending(ds => ds.Carb) // Most carbs first (aligned with typical macro goals)
             .Take(5)
             .Select(ds => new DishAlternative
             {
