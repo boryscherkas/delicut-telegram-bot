@@ -61,12 +61,14 @@ public class MenuSelectionService : IMenuSelectionService
         var schedule = await ApiCallHelper.CallApiSafeAsync(() =>
             _delicutApi.GetDeliveryScheduleAsync(user.DelicutToken!, user.DelicutCustomerId!));
 
+        // Group meal types by category (e.g., lunch+dinner are both "meal") and sum quantities
         var mealSlots = subscription.MealTypes
-            .Select(mt => new MealSlot
+            .GroupBy(mt => mt.MealCategory.ToLower())
+            .Select(g => new MealSlot
             {
-                Category = mt.MealCategory.ToLower(),
-                ApiCategory = mt.MealType.ToLower(),
-                Count = mt.Qty
+                Category = g.Key,
+                ApiCategory = g.First().MealType.ToLower(),  // Use first API type (e.g., "lunch" not "dinner")
+                Count = g.Sum(mt => mt.Qty)
             })
             .ToList();
 

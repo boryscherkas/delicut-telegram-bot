@@ -53,6 +53,9 @@ public class MenuFetchService : IMenuFetchService
                 var mealTypeInfo = subscription.MealTypes
                     .FirstOrDefault(mt => mt.MealCategory.Equals(category, StringComparison.OrdinalIgnoreCase));
 
+                _logger.LogInformation("MealType for {Date} {Category}: KcalRange={KcalRange}, ProteinCategory={ProteinCategory}",
+                    day.Date, category, mealTypeInfo?.KcalRange, mealTypeInfo?.ProteinCategory);
+
                 var firstSlot = slotsByCategory.GetValueOrDefault(category)?.FirstOrDefault();
                 var uniqueIdForFetch = firstSlot?.UniqueId ?? string.Empty;
 

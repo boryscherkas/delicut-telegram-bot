@@ -38,7 +38,7 @@ public class DishFilterService : IDishFilterService
             var matchingVariants = dish.Variants
                 .Where(v => !string.IsNullOrEmpty(v.Size)
                     && !string.IsNullOrEmpty(v.ProteinCategory)
-                    && v.Size.Equals(kcalRange, StringComparison.OrdinalIgnoreCase)
+                    && (string.IsNullOrEmpty(kcalRange) || v.Size.Equals(kcalRange, StringComparison.OrdinalIgnoreCase))
                     && v.Kcal > 0) // Skip empty/unavailable variants (0 kcal = not real)
                 .OrderByDescending(v => v.ProteinCategory.Equals(proteinCategory, StringComparison.OrdinalIgnoreCase))
                 .ToList();
