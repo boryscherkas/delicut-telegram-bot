@@ -210,8 +210,8 @@ public class MenuSelectionService : IMenuSelectionService
 
         if (daySelections.Count == 0)
         {
-            _logger.LogWarning("No pending selections for {Date}", date);
-            return;
+            _logger.LogInformation("Day {Date} already submitted (no pending selections)", date);
+            return; // Silently succeed — idempotent
         }
 
         _logger.LogInformation("Submitting {Count} dishes for {Date}", daySelections.Count, date);
