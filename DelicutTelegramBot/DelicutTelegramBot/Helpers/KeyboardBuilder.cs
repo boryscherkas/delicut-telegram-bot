@@ -1,0 +1,62 @@
+using Telegram.Bot;
+using Telegram.Bot.Types.ReplyMarkups;
+
+namespace DelicutTelegramBot.Helpers;
+
+public static class KeyboardBuilder
+{
+    /// <summary>
+    /// Returns the standard week overview keyboard with Approve All, Approve Day, Change Dishes, Regenerate.
+    /// </summary>
+    public static InlineKeyboardMarkup WeekOverviewKeyboard() =>
+        new(new[]
+        {
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("Approve All", "select:approve_all"),
+                InlineKeyboardButton.WithCallbackData("Approve Day", "select:approve_day"),
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("Change Dishes", "select:change"),
+                InlineKeyboardButton.WithCallbackData("Regenerate", "select:regenerate")
+            }
+        });
+
+    /// <summary>
+    /// Returns the week overview keyboard without the Approve Day button (used after regenerate and show_week).
+    /// </summary>
+    public static InlineKeyboardMarkup WeekOverviewCompactKeyboard() =>
+        new(new[]
+        {
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("Approve All", "select:approve_all"),
+                InlineKeyboardButton.WithCallbackData("Change Dishes", "select:change")
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("Regenerate", "select:regenerate")
+            }
+        });
+
+    /// <summary>
+    /// Sends a message, splitting it into multiple messages if it exceeds the Telegram 4096 character limit.
+    /// The keyboard is attached to the last message chunk only.
+    /// </summary>
+    public static async Task SendOrSplitMessageAsync(ITelegramBotClient bot, long chatId, string text,
+        InlineKeyboardMarkup keyboard, CancellationToken ct)
+    {
+        if (text.Length <= 4096)
+        {
+            await bot.SendMessage(chatId, text, replyMarkup: keyboard, cancellationToken: ct);
+        }
+        else
+        {
+            var chunks = TelegramFormatHelper.SplitMessage(text, 4096);
+            for (int i = 0; i < chunks.Count - 1; i++)
+                await bot.SendMessage(chatId, chunks[i], cancellationToken: ct);
+            await bot.SendMessage(chatId, chunks[^1], replyMarkup: keyboard, cancellationToken: ct);
+        }
+    }
+}

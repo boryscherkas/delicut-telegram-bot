@@ -17,6 +17,7 @@ public class MenuSelectionServiceTests : IDisposable
     private readonly Mock<IUserService> _userService;
     private readonly Mock<IOpenAiService> _openAi;
     private readonly Mock<IDishFilterService> _dishFilter;
+    private readonly Mock<IMenuFetchService> _menuFetch;
     private readonly Mock<IFallbackSelectionService> _fallback;
     private readonly Mock<ISelectionHistoryService> _history;
     private readonly ConversationStateManager _stateManager;
@@ -33,6 +34,7 @@ public class MenuSelectionServiceTests : IDisposable
         _userService = new Mock<IUserService>();
         _openAi = new Mock<IOpenAiService>();
         _dishFilter = new Mock<IDishFilterService>();
+        _menuFetch = new Mock<IMenuFetchService>();
         _fallback = new Mock<IFallbackSelectionService>();
         // Default fallback: return a single pick for any request
         _fallback.Setup(f => f.Select(It.IsAny<List<DishSummary>>(), It.IsAny<SelectionStrategy>(),
@@ -66,7 +68,7 @@ public class MenuSelectionServiceTests : IDisposable
         var logger = Mock.Of<ILogger<MenuSelectionService>>();
 
         _sut = new MenuSelectionService(
-            _delicutApi.Object, _userService.Object, _openAi.Object, _dishFilter.Object,
+            _delicutApi.Object, _userService.Object, _openAi.Object, _menuFetch.Object,
             _fallback.Object, _history.Object, _stateManager, _db, logger);
     }
 
@@ -221,15 +223,29 @@ public class MenuSelectionServiceTests : IDisposable
         var dish = MakeDish("dish-1", "Grilled Chicken");
         var subscription = MakeSubscription();
         var schedule = MakeSchedule(MakeDeliveryDay(futureDate));
+        var deliveryDay = MakeDeliveryDay(futureDate);
+        var summaries = new List<DishSummary>
+        {
+            new() { Id = "dish-1", Name = "Grilled Chicken", ProteinOption = "chicken", MealCategory = "meal", Kcal = 500, Protein = 35, Carb = 40, Fat = 15 }
+        };
 
         _delicutApi.Setup(a => a.GetSubscriptionDetailsAsync(It.IsAny<string>()))
             .ReturnsAsync(subscription);
         _delicutApi.Setup(a => a.GetDeliveryScheduleAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(schedule);
-        _delicutApi.Setup(a => a.FetchMenuAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync([dish]);
-        _dishFilter.Setup(f => f.Filter(It.IsAny<List<Dish>>(), It.IsAny<List<string>>(), It.IsAny<List<string>>(), It.IsAny<List<string>>(), It.IsAny<string>(), It.IsAny<string>()))
-            .Returns([dish]);
+        _menuFetch.Setup(f => f.FetchAndFilterMenusAsync(It.IsAny<User>(), It.IsAny<Subscription>(), It.IsAny<WeekDeliverySchedule>(), It.IsAny<List<MealSlot>>()))
+            .ReturnsAsync(new WeekMenuData
+            {
+                Days = [new DayMenuData
+                {
+                    Day = deliveryDay,
+                    Filtered = [dish],
+                    Summaries = summaries,
+                    SlotsByCategory = deliveryDay.Slots.GroupBy(s => s.MealCategory.ToLower()).ToDictionary(g => g.Key, g => g.ToList()),
+                    MealSlot = new MealSlot { Category = "meal", ApiCategory = "lunch", Count = 1 }
+                }],
+                LockedDays = []
+            });
         _openAi.Setup(ai => ai.SelectDishesAsync(It.IsAny<AiSelectionRequest>()))
             .ReturnsAsync(MakeAiResult("dish-1", futureDate.ToString("yyyy-MM-dd")));
         _history.Setup(h => h.GetPreviousChoiceNamesAsync(It.IsAny<Guid>(), It.IsAny<int>()))
@@ -264,15 +280,29 @@ public class MenuSelectionServiceTests : IDisposable
         var schedule = MakeSchedule(
             MakeDeliveryDay(lockedDay, isLocked: true),
             MakeDeliveryDay(openDay, isLocked: false));
+        var openDeliveryDay = MakeDeliveryDay(openDay);
+        var summaries = new List<DishSummary>
+        {
+            new() { Id = "dish-1", Name = "Grilled Chicken", ProteinOption = "chicken", MealCategory = "meal", Kcal = 500, Protein = 35, Carb = 40, Fat = 15 }
+        };
 
         _delicutApi.Setup(a => a.GetSubscriptionDetailsAsync(It.IsAny<string>()))
             .ReturnsAsync(subscription);
         _delicutApi.Setup(a => a.GetDeliveryScheduleAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(schedule);
-        _delicutApi.Setup(a => a.FetchMenuAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync([dish]);
-        _dishFilter.Setup(f => f.Filter(It.IsAny<List<Dish>>(), It.IsAny<List<string>>(), It.IsAny<List<string>>(), It.IsAny<List<string>>(), It.IsAny<string>(), It.IsAny<string>()))
-            .Returns([dish]);
+        _menuFetch.Setup(f => f.FetchAndFilterMenusAsync(It.IsAny<User>(), It.IsAny<Subscription>(), It.IsAny<WeekDeliverySchedule>(), It.IsAny<List<MealSlot>>()))
+            .ReturnsAsync(new WeekMenuData
+            {
+                Days = [new DayMenuData
+                {
+                    Day = openDeliveryDay,
+                    Filtered = [dish],
+                    Summaries = summaries,
+                    SlotsByCategory = openDeliveryDay.Slots.GroupBy(s => s.MealCategory.ToLower()).ToDictionary(g => g.Key, g => g.ToList()),
+                    MealSlot = new MealSlot { Category = "meal", ApiCategory = "lunch", Count = 1 }
+                }],
+                LockedDays = [lockedDay]
+            });
         _openAi.Setup(ai => ai.SelectDishesAsync(It.IsAny<AiSelectionRequest>()))
             .ReturnsAsync(MakeAiResult("dish-1", openDay.ToString("yyyy-MM-dd")));
         _history.Setup(h => h.GetPreviousChoiceNamesAsync(It.IsAny<Guid>(), It.IsAny<int>()))
@@ -302,15 +332,29 @@ public class MenuSelectionServiceTests : IDisposable
         var dish = MakeDish("dish-1", "Grilled Chicken");
         var subscription = MakeSubscription();
         var schedule = MakeSchedule(MakeDeliveryDay(today));
+        var deliveryDay = MakeDeliveryDay(today);
+        var summaries = new List<DishSummary>
+        {
+            new() { Id = "dish-1", Name = "Grilled Chicken", ProteinOption = "chicken", MealCategory = "meal", Kcal = 500, Protein = 35, Carb = 40, Fat = 15 }
+        };
 
         _delicutApi.Setup(a => a.GetSubscriptionDetailsAsync(It.IsAny<string>()))
             .ReturnsAsync(subscription);
         _delicutApi.Setup(a => a.GetDeliveryScheduleAsync(It.IsAny<string>(), It.IsAny<string>()))
             .ReturnsAsync(schedule);
-        _delicutApi.Setup(a => a.FetchMenuAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .ReturnsAsync([dish]);
-        _dishFilter.Setup(f => f.Filter(It.IsAny<List<Dish>>(), It.IsAny<List<string>>(), It.IsAny<List<string>>(), It.IsAny<List<string>>(), It.IsAny<string>(), It.IsAny<string>()))
-            .Returns([dish]);
+        _menuFetch.Setup(f => f.FetchAndFilterMenusAsync(It.IsAny<User>(), It.IsAny<Subscription>(), It.IsAny<WeekDeliverySchedule>(), It.IsAny<List<MealSlot>>()))
+            .ReturnsAsync(new WeekMenuData
+            {
+                Days = [new DayMenuData
+                {
+                    Day = deliveryDay,
+                    Filtered = [dish],
+                    Summaries = summaries,
+                    SlotsByCategory = deliveryDay.Slots.GroupBy(s => s.MealCategory.ToLower()).ToDictionary(g => g.Key, g => g.ToList()),
+                    MealSlot = new MealSlot { Category = "meal", ApiCategory = "lunch", Count = 1 }
+                }],
+                LockedDays = []
+            });
 
         // OpenAI returns null — should trigger fallback
         _openAi.Setup(ai => ai.SelectDishesAsync(It.IsAny<AiSelectionRequest>()))

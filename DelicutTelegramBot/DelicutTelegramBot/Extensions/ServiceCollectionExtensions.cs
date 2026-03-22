@@ -30,6 +30,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IDelicutApiService, DelicutApiService>();
         services.AddScoped<IUserService, UserService>();
         services.AddScoped<IOpenAiService, OpenAiService>();
+        services.AddScoped<IMenuFetchService, MenuFetchService>();
         services.AddScoped<IMenuSelectionService, MenuSelectionService>();
         services.AddScoped<IDishFilterService, DishFilterService>();
         services.AddScoped<IFallbackSelectionService, FallbackSelectionService>();

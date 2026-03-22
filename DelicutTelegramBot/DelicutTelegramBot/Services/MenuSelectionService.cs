@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DelicutTelegramBot.Helpers;
 using DelicutTelegramBot.Infrastructure;
 using DelicutTelegramBot.Models.Delicut;
 using DelicutTelegramBot.Models.Domain;
@@ -14,7 +15,7 @@ public class MenuSelectionService : IMenuSelectionService
     private readonly IDelicutApiService _delicutApi;
     private readonly IUserService _userService;
     private readonly IOpenAiService _openAiService;
-    private readonly IDishFilterService _dishFilterService;
+    private readonly IMenuFetchService _menuFetchService;
     private readonly IFallbackSelectionService _fallbackService;
     private readonly ISelectionHistoryService _historyService;
     private readonly ConversationStateManager _stateManager;
@@ -25,7 +26,7 @@ public class MenuSelectionService : IMenuSelectionService
         IDelicutApiService delicutApi,
         IUserService userService,
         IOpenAiService openAiService,
-        IDishFilterService dishFilterService,
+        IMenuFetchService menuFetchService,
         IFallbackSelectionService fallbackService,
         ISelectionHistoryService historyService,
         ConversationStateManager stateManager,
@@ -35,7 +36,7 @@ public class MenuSelectionService : IMenuSelectionService
         _delicutApi = delicutApi;
         _userService = userService;
         _openAiService = openAiService;
-        _dishFilterService = dishFilterService;
+        _menuFetchService = menuFetchService;
         _fallbackService = fallbackService;
         _historyService = historyService;
         _stateManager = stateManager;
@@ -65,8 +66,8 @@ public class MenuSelectionService : IMenuSelectionService
         var mealSlots = subscription.MealTypes
             .Select(mt => new MealSlot
             {
-                Category = mt.MealCategory.ToLower(),   // "meal", "breakfast", "snack" — for internal grouping
-                ApiCategory = mt.MealType.ToLower(),     // "lunch", "breakfast", "evening_snack" — for API calls
+                Category = mt.MealCategory.ToLower(),
+                ApiCategory = mt.MealType.ToLower(),
                 Count = mt.Qty
             })
             .ToList();
@@ -87,72 +88,13 @@ public class MenuSelectionService : IMenuSelectionService
             user.Settings?.PreferredProteinVariant,
             string.Join(", ", user.Settings?.FavouriteDishNames ?? []));
 
-        var state = _stateManager.GetOrCreate(user.TelegramUserId);
-        var dayProposals = new List<DayProposal>();
-        var lockedDays = new List<DateOnly>();
-
         // ── Phase 1: Fetch and filter menus for all unlocked days ──
-        var dayMenuData = new List<(DeliveryDay Day, List<Dish> Filtered, List<DishSummary> Summaries,
-            Dictionary<string, List<DeliverySlot>> SlotsByCategory, MealSlot MealSlot)>();
-
-        foreach (var day in schedule.Days)
-        {
-            if (day.IsLocked) { lockedDays.Add(day.Date); continue; }
-
-            var slotsByCategory = day.Slots
-                .GroupBy(s => s.MealCategory.ToLower())
-                .ToDictionary(g => g.Key, g => g.ToList());
-
-            foreach (var mealSlot in mealSlots)
-            {
-                var category = mealSlot.Category;
-                var mealTypeInfo = subscription.MealTypes
-                    .FirstOrDefault(mt => mt.MealCategory.Equals(category, StringComparison.OrdinalIgnoreCase));
-
-                var firstSlot = slotsByCategory.GetValueOrDefault(category)?.FirstOrDefault();
-                var uniqueIdForFetch = firstSlot?.UniqueId ?? string.Empty;
-
-                if (string.IsNullOrEmpty(uniqueIdForFetch))
-                {
-                    _logger.LogWarning("No UniqueId for {Date} category '{Category}'", day.Date, category);
-                    continue;
-                }
-
-                List<Dish> menu;
-                var cacheKey = $"menu:{day.Date}:{category}";
-                try
-                {
-                    menu = await CallApiSafeAsync(() =>
-                        _delicutApi.FetchMenuAsync(user.DelicutToken!, day.DeliveryId, mealSlot.ApiCategory, uniqueIdForFetch));
-                    state.FlowData[cacheKey] = menu;
-                }
-                catch (DelicutAuthExpiredException) { throw; }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to fetch menu for {Date} {Category}", day.Date, category);
-                    continue;
-                }
-
-                var filtered = _dishFilterService.Filter(menu,
-                    user.Settings?.StopWords ?? [], subscription.AvoidIngredients, subscription.AvoidCategory,
-                    mealTypeInfo?.KcalRange ?? string.Empty, mealTypeInfo?.ProteinCategory ?? string.Empty);
-
-                var dishSummaries = FlattenToDishSummaries(filtered, category, user.Settings?.PreferredProteinVariant);
-                dayMenuData.Add((day, filtered, dishSummaries, slotsByCategory, mealSlot));
-            }
-        }
+        var weekMenuData = await _menuFetchService.FetchAndFilterMenusAsync(user, subscription, schedule, mealSlots);
+        var dayMenuData = weekMenuData.Days;
+        var lockedDays = weekMenuData.LockedDays;
 
         // ── Phase 2: ONE AI call for the entire week ──
         var macroPriority = (user.Settings?.MacroPriority ?? "p,c,f").Split(',').Select(s => s.Trim()).ToList();
-
-        // Log max possible macros per day
-        foreach (var d in dayMenuData)
-        {
-            var topCarbs = d.Summaries.OrderByDescending(s => s.Carb).Take(d.MealSlot.Count).Sum(s => s.Carb);
-            var topProtein = d.Summaries.OrderByDescending(s => s.Protein).Take(d.MealSlot.Count).Sum(s => s.Protein);
-            _logger.LogInformation("Max possible for {Date}: C:{MaxCarb:F0}g P:{MaxProtein:F0}g (top {Count})",
-                d.Day.Date, topCarbs, topProtein, d.MealSlot.Count);
-        }
 
         var weekMenu = dayMenuData.Select(d => new AiDayMenu
         {
@@ -269,7 +211,7 @@ public class MenuSelectionService : IMenuSelectionService
                 fallbackWeekContext[pick.Date] = [];
             // Resolve dish name from menu data
             var pickDayData = dayMenuData.FirstOrDefault(d => d.Day.Date.ToString("yyyy-MM-dd") == pick.Date);
-            var dishName = pickDayData.Filtered?.FirstOrDefault(d => d.Id == pick.DishId)?.DishName ?? pick.DishId;
+            var dishName = pickDayData?.Filtered?.FirstOrDefault(d => d.Id == pick.DishId)?.DishName ?? pick.DishId;
             fallbackWeekContext[pick.Date].Add(dishName);
         }
 
@@ -279,7 +221,7 @@ public class MenuSelectionService : IMenuSelectionService
             if (currentPicks >= needed) continue;
 
             var dayData = dayMenuData.FirstOrDefault(d => d.Day.Date.ToString("yyyy-MM-dd") == dayDate);
-            if (dayData.Summaries == null) continue;
+            if (dayData?.Summaries == null) continue;
 
             _logger.LogInformation("{Mode} {Date}: has {Current}/{Needed} picks, filling with fallback",
                 useAi ? "AI incomplete" : "Algorithm", dayDate, currentPicks, needed);
@@ -323,7 +265,7 @@ public class MenuSelectionService : IMenuSelectionService
                 if (pickToReplace == null) continue;
 
                 var dayData = dayMenuData.FirstOrDefault(d => d.Day.Date.ToString("yyyy-MM-dd") == date);
-                if (dayData.Summaries == null) continue;
+                if (dayData?.Summaries == null) continue;
 
                 // Find the best alternative that isn't already on this day
                 var dayDishIds = weekResult.Picks.Where(p => p.Date == date).Select(p => p.DishId).ToHashSet();
@@ -346,10 +288,17 @@ public class MenuSelectionService : IMenuSelectionService
 
         // ── Phase 3: Resolve AI picks into PendingSelections ──
         var weekContext = new Dictionary<string, List<string>>();
+        var dayProposals = new List<DayProposal>();
 
-        foreach (var (day, filtered, dishSummaries, slotsByCategory, mealSlot) in dayMenuData)
+        foreach (var dayData in dayMenuData)
         {
+            var day = dayData.Day;
+            var filtered = dayData.Filtered;
+            var dishSummaries = dayData.Summaries;
+            var slotsByCategory = dayData.SlotsByCategory;
+            var mealSlot = dayData.MealSlot;
             var category = mealSlot.Category;
+
             var dayPicks = weekResult.Picks
                 .Where(p => p.Date == day.Date.ToString("yyyy-MM-dd"))
                 .ToList();
@@ -449,7 +398,7 @@ public class MenuSelectionService : IMenuSelectionService
         return new WeeklyProposal
         {
             Days = dayProposals,
-            LockedDays = lockedDays
+            LockedDays = lockedDays.ToList()
         };
     }
 
@@ -472,7 +421,7 @@ public class MenuSelectionService : IMenuSelectionService
         var otherSelectedDishIds = await _db.PendingSelections
             .Where(p => p.UserId == userId && p.DeliveryDate == date
                 && p.Status == PendingSelectionStatus.Proposed
-                && p.SlotIndex != slotIndex) // Keep the current slot's dish available
+                && p.SlotIndex != slotIndex)
             .Select(p => p.DishId)
             .ToListAsync();
 
@@ -489,9 +438,9 @@ public class MenuSelectionService : IMenuSelectionService
             available = available.Where(d => d.Id != currentDishId).ToList();
 
         // Convert to DishSummary, sort by carb content (most relevant for macro goals), take top 5
-        var alternatives = FlattenToDishSummaries(available, mealCategory,
+        var alternatives = DishSummaryHelper.FlattenToDishSummaries(available, mealCategory,
                 user.Settings?.PreferredProteinVariant)
-            .OrderByDescending(ds => ds.Carb) // Most carbs first (aligned with typical macro goals)
+            .OrderByDescending(ds => ds.Carb)
             .Take(5)
             .Select(ds => new DishAlternative
             {
@@ -676,52 +625,6 @@ public class MenuSelectionService : IMenuSelectionService
             throw new InvalidOperationException(
                 $"Failed to submit selections for: {string.Join(", ", failedDays)}. These days are kept for retry.");
         }
-    }
-
-    /// <summary>
-    /// Flattens dishes to DishSummary. If preferredProtein is set, picks only that variant
-    /// per dish (falls back to first variant if preferred not available).
-    /// Otherwise creates one summary per variant.
-    /// </summary>
-    private static List<DishSummary> FlattenToDishSummaries(
-        List<Dish> dishes, string mealCategory, string? preferredProtein = null)
-    {
-        var summaries = new List<DishSummary>();
-        foreach (var dish in dishes)
-        {
-            IEnumerable<DishVariant> variants;
-            if (!string.IsNullOrEmpty(preferredProtein))
-            {
-                // Pick preferred variant if available, otherwise first variant
-                var preferred = dish.Variants.FirstOrDefault(v =>
-                    v.ProteinOption.Equals(preferredProtein, StringComparison.OrdinalIgnoreCase));
-                variants = preferred != null ? [preferred] : dish.Variants.Take(1);
-            }
-            else
-            {
-                variants = dish.Variants;
-            }
-
-            foreach (var variant in variants)
-            {
-                summaries.Add(new DishSummary
-                {
-                    Id = dish.Id,
-                    Name = dish.DishName,
-                    Cuisine = dish.Cuisine,
-                    Kcal = variant.Kcal,
-                    Protein = variant.Protein,
-                    Carb = variant.Carb,
-                    Fat = variant.Fat,
-                    Rating = 0, // Not using Delicut API rating
-                    TotalRatings = 0,
-                    SpiceLevel = dish.SpiceLevel,
-                    ProteinOption = variant.ProteinOption,
-                    MealCategory = mealCategory
-                });
-            }
-        }
-        return summaries;
     }
 
     private async Task<T> CallApiSafeAsync<T>(Func<Task<T>> apiCall)

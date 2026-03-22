@@ -56,33 +56,8 @@ public class SelectWeekHandler
             user.Settings?.CarbGoalGrams,
             user.Settings?.FatGoalGrams);
 
-        var keyboard = new InlineKeyboardMarkup(new[]
-        {
-            new[]
-            {
-                InlineKeyboardButton.WithCallbackData("Approve All", "select:approve_all"),
-                InlineKeyboardButton.WithCallbackData("Approve Day", "select:approve_day"),
-            },
-            new[]
-            {
-                InlineKeyboardButton.WithCallbackData("Change Dishes", "select:change"),
-                InlineKeyboardButton.WithCallbackData("Regenerate", "select:regenerate")
-            }
-        });
-
-        // Telegram has a 4096 char limit — split if needed
-        if (text.Length <= 4096)
-        {
-            await _bot.SendMessage(message.Chat.Id, text, replyMarkup: keyboard, cancellationToken: ct);
-        }
-        else
-        {
-            // Send overview in chunks, keyboard on last message
-            var chunks = TelegramFormatHelper.SplitMessage(text, 4096);
-            for (int i = 0; i < chunks.Count - 1; i++)
-                await _bot.SendMessage(message.Chat.Id, chunks[i], cancellationToken: ct);
-            await _bot.SendMessage(message.Chat.Id, chunks[^1], replyMarkup: keyboard, cancellationToken: ct);
-        }
+        await KeyboardBuilder.SendOrSplitMessageAsync(_bot, message.Chat.Id, text,
+            KeyboardBuilder.WeekOverviewKeyboard(), ct);
     }
 
     public async Task HandleCallbackAsync(CallbackQuery callback, CancellationToken ct)
@@ -158,30 +133,8 @@ public class SelectWeekHandler
                 user.Settings?.CarbGoalGrams,
                 user.Settings?.FatGoalGrams);
 
-            var newKeyboard = new InlineKeyboardMarkup(new[]
-            {
-                new[]
-                {
-                    InlineKeyboardButton.WithCallbackData("Approve All", "select:approve_all"),
-                    InlineKeyboardButton.WithCallbackData("Change Dishes", "select:change")
-                },
-                new[]
-                {
-                    InlineKeyboardButton.WithCallbackData("Regenerate", "select:regenerate")
-                }
-            });
-
-            if (newText.Length <= 4096)
-            {
-                await _bot.SendMessage(chatId, newText, replyMarkup: newKeyboard, cancellationToken: ct);
-            }
-            else
-            {
-                var chunks = TelegramFormatHelper.SplitMessage(newText, 4096);
-                for (int i = 0; i < chunks.Count - 1; i++)
-                    await _bot.SendMessage(chatId, chunks[i], cancellationToken: ct);
-                await _bot.SendMessage(chatId, chunks[^1], replyMarkup: newKeyboard, cancellationToken: ct);
-            }
+            await KeyboardBuilder.SendOrSplitMessageAsync(_bot, chatId, newText,
+                KeyboardBuilder.WeekOverviewCompactKeyboard(), ct);
         }
         else if (data == "select:approve_day")
         {
@@ -219,30 +172,8 @@ public class SelectWeekHandler
             var weekText = FormatWeekOverview(proposal,
                 user?.Settings?.ProteinGoalGrams, user?.Settings?.CarbGoalGrams, user?.Settings?.FatGoalGrams);
 
-            var weekKeyboard = new InlineKeyboardMarkup(new[]
-            {
-                new[]
-                {
-                    InlineKeyboardButton.WithCallbackData("Approve All", "select:approve_all"),
-                    InlineKeyboardButton.WithCallbackData("Change Dishes", "select:change")
-                },
-                new[]
-                {
-                    InlineKeyboardButton.WithCallbackData("Regenerate", "select:regenerate")
-                }
-            });
-
-            if (weekText.Length <= 4096)
-            {
-                await _bot.SendMessage(chatId, weekText, replyMarkup: weekKeyboard, cancellationToken: ct);
-            }
-            else
-            {
-                var chunks = TelegramFormatHelper.SplitMessage(weekText, 4096);
-                for (int i = 0; i < chunks.Count - 1; i++)
-                    await _bot.SendMessage(chatId, chunks[i], cancellationToken: ct);
-                await _bot.SendMessage(chatId, chunks[^1], replyMarkup: weekKeyboard, cancellationToken: ct);
-            }
+            await KeyboardBuilder.SendOrSplitMessageAsync(_bot, chatId, weekText,
+                KeyboardBuilder.WeekOverviewCompactKeyboard(), ct);
         }
         else if (data == "select:change")
         {
