@@ -266,28 +266,12 @@ public class MenuSelectionService : IMenuSelectionService
 
         if (daySelections.Count == 0)
         {
-            _logger.LogInformation("Day {Date} already submitted (no pending selections)", date);
+            _logger.LogWarning("No pending selections for {Date} — nothing to submit", date);
             return;
         }
 
-        // Filter out dishes that match Delicut's current selection
-        var toSubmit = daySelections.Where(s => !s.MatchesOriginal).ToList();
-        var skipped = daySelections.Where(s => s.MatchesOriginal).ToList();
-
-        if (skipped.Count > 0)
-            _logger.LogInformation("Skipping {Count} dishes for {Date} (already match Delicut)", skipped.Count, date);
-
-        if (toSubmit.Count == 0)
-        {
-            _logger.LogInformation("Day {Date} fully matches Delicut — nothing to submit", date);
-            // Clean up pending selections since no changes needed
-            _db.PendingSelections.RemoveRange(daySelections);
-            await _db.SaveChangesAsync();
-            return;
-        }
-
-        _logger.LogInformation("Submitting {Count} changed dishes for {Date} (skipping {Skipped} matching)",
-            toSubmit.Count, date, skipped.Count);
+        _logger.LogInformation("Submitting {Count} dishes for {Date}", daySelections.Count, date);
+        var toSubmit = daySelections;
 
         foreach (var sel in toSubmit)
         {
