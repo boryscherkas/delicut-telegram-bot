@@ -84,6 +84,8 @@ public class MenuFetchService : IMenuFetchService
                     mealTypeInfo?.KcalRange ?? string.Empty, mealTypeInfo?.ProteinCategory ?? string.Empty);
 
                 var dishSummaries = DishSummaryHelper.FlattenToDishSummaries(filtered, category, user.Settings?.PreferredProteinVariant);
+                _logger.LogInformation("Fetched {Count} dishes for {Date} {Category} (filtered: {Filtered}, summaries: {Summaries})",
+                    menu.Count, day.Date, category, filtered.Count, dishSummaries.Count);
                 dayMenuDataList.Add(new DayMenuData
                 {
                     Day = day,
