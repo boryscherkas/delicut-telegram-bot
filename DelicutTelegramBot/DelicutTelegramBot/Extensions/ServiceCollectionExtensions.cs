@@ -42,6 +42,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<SettingsHandler>();
         services.AddScoped<SelectWeekHandler>();
         services.AddScoped<ChangeDishHandler>();
+        services.AddScoped<MenuHandler>();
         services.AddScoped<CancelHandler>();
 
         // Background Services

@@ -14,6 +14,7 @@ public class BotHandler
     private readonly SettingsHandler _settingsHandler;
     private readonly SelectWeekHandler _selectWeekHandler;
     private readonly ChangeDishHandler _changeDishHandler;
+    private readonly MenuHandler _menuHandler;
     private readonly CancelHandler _cancelHandler;
     private readonly ConversationStateManager _stateManager;
     private readonly ILogger<BotHandler> _logger;
@@ -24,6 +25,7 @@ public class BotHandler
         SettingsHandler settingsHandler,
         SelectWeekHandler selectWeekHandler,
         ChangeDishHandler changeDishHandler,
+        MenuHandler menuHandler,
         CancelHandler cancelHandler,
         ConversationStateManager stateManager,
         ILogger<BotHandler> logger)
@@ -33,6 +35,7 @@ public class BotHandler
         _settingsHandler = settingsHandler;
         _selectWeekHandler = selectWeekHandler;
         _changeDishHandler = changeDishHandler;
+        _menuHandler = menuHandler;
         _cancelHandler = cancelHandler;
         _stateManager = stateManager;
         _logger = logger;
@@ -56,6 +59,8 @@ public class BotHandler
                         await _startHandler.HandleCommandAsync(update.Message, ct);
                     else if (text.StartsWith("/select"))
                         await _selectWeekHandler.HandleCommandAsync(update.Message, ct);
+                    else if (text.StartsWith("/menu"))
+                        await _menuHandler.HandleCommandAsync(update.Message, ct);
                     else if (text.StartsWith("/settings"))
                         await _settingsHandler.HandleCommandAsync(update.Message, ct);
                     else if (text.StartsWith("/cancel"))
