@@ -201,18 +201,20 @@ public class MenuSelectionService : IMenuSelectionService
 
     public async Task SubmitDayAsync(Guid userId, DateOnly date)
     {
-        await ConfirmDayAsync(userId, date);
-
         var user = await _db.Users.FirstAsync(u => u.Id == userId);
+
+        // Get all pending selections for this day (any status)
         var daySelections = await _db.PendingSelections
-            .Where(p => p.UserId == userId && p.DeliveryDate == date && p.Status == PendingSelectionStatus.Confirmed)
+            .Where(p => p.UserId == userId && p.DeliveryDate == date)
             .ToListAsync();
 
         if (daySelections.Count == 0)
         {
-            _logger.LogWarning("No confirmed selections for {Date}", date);
+            _logger.LogWarning("No pending selections for {Date}", date);
             return;
         }
+
+        _logger.LogInformation("Submitting {Count} dishes for {Date}", daySelections.Count, date);
 
         foreach (var sel in daySelections)
         {
