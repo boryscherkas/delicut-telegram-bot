@@ -5,6 +5,7 @@ public class DishSubmission
     public string DishId { get; set; } = string.Empty;
     public string ProteinOption { get; set; } = string.Empty;
     public string MealCategory { get; set; } = string.Empty;
+    public string MealType { get; set; } = string.Empty;  // "lunch", "breakfast" — for API type field
     public int SlotIndex { get; set; }
     public string Size { get; set; } = string.Empty;
     public string ProteinCategory { get; set; } = string.Empty;

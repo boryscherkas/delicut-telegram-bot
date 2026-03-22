@@ -276,7 +276,7 @@ public class DelicutApiService : IDelicutApiService
 
             var payload = new
             {
-                type = dish.MealCategory.ToLower(),
+                type = dish.MealType,  // "lunch", "breakfast", etc — NOT "meal"
                 customer_id = customerId,
                 delivery_id = deliveryId,
                 recipe_id = dish.DishId,

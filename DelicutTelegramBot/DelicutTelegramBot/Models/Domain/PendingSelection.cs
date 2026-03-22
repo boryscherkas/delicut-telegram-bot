@@ -7,7 +7,8 @@ public class PendingSelection
     public DateOnly DeliveryDate { get; set; }
     public string DeliveryId { get; set; } = string.Empty;
     public string UniqueId { get; set; } = string.Empty;
-    public string MealCategory { get; set; } = string.Empty;
+    public string MealCategory { get; set; } = string.Empty;  // Internal: "meal", "breakfast", "snack"
+    public string MealType { get; set; } = string.Empty;      // API: "lunch", "breakfast", "evening_snack"
     public int SlotIndex { get; set; }
     public string DishId { get; set; } = string.Empty;
     public string DishName { get; set; } = string.Empty;

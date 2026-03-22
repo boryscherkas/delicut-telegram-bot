@@ -221,6 +221,7 @@ public class MenuSelectionService : IMenuSelectionService
                 DishId = sel.DishId,
                 ProteinOption = sel.VariantProtein,
                 MealCategory = sel.MealCategory,
+                MealType = sel.MealType,
                 SlotIndex = sel.SlotIndex,
                 Size = sel.VariantSize,
                 ProteinCategory = sel.VariantProteinCategory
@@ -270,6 +271,7 @@ public class MenuSelectionService : IMenuSelectionService
                 DishId = p.DishId,
                 ProteinOption = p.VariantProtein,
                 MealCategory = p.MealCategory,
+                MealType = p.MealType,
                 SlotIndex = p.SlotIndex,
                 Size = p.VariantSize,
                 ProteinCategory = p.VariantProteinCategory
@@ -657,6 +659,7 @@ public class MenuSelectionService : IMenuSelectionService
                 DeliveryId = day.DeliveryId,
                 UniqueId = slotUniqueId,
                 MealCategory = pick.MealCategory,
+                MealType = dayData.MealSlot.ApiCategory,
                 SlotIndex = pick.SlotIndex,
                 DishId = pick.DishId,
                 DishName = dish.DishName,
