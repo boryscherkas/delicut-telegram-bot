@@ -45,6 +45,11 @@ public class MenuFetchService : IMenuFetchService
             foreach (var mealSlot in mealSlots)
             {
                 var category = mealSlot.Category;
+
+                // Only process this meal category if this delivery declares it
+                if (!day.MealCategories.Any(mc => mc.Equals(category, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
                 var mealTypeInfo = subscription.MealTypes
                     .FirstOrDefault(mt => mt.MealCategory.Equals(category, StringComparison.OrdinalIgnoreCase));
 
