@@ -756,6 +756,10 @@ public class MenuSelectionService : IMenuSelectionService
                 && originalSlot.CurrentDishId == pick.DishId
                 && (originalSlot.CurrentProteinOption ?? "").Equals(variant.ProteinOption, StringComparison.OrdinalIgnoreCase);
 
+            // Use the ORIGINAL MealType from the delivery slot, not the merged ApiCategory.
+            // e.g., slot 1 might be "dinner" even though we merged it into "lunch" for fetching.
+            var slotMealType = matchingSlot?.MealType ?? firstSlot?.MealType ?? dayData.MealSlot.ApiCategory;
+
             var pending = new PendingSelection
             {
                 Id = Guid.NewGuid(),
@@ -764,7 +768,7 @@ public class MenuSelectionService : IMenuSelectionService
                 DeliveryId = day.DeliveryId,
                 UniqueId = slotUniqueId,
                 MealCategory = pick.MealCategory,
-                MealType = dayData.MealSlot.ApiCategory,
+                MealType = slotMealType,
                 SlotIndex = pick.SlotIndex,
                 DishId = pick.DishId,
                 DishName = dish.DishName,
