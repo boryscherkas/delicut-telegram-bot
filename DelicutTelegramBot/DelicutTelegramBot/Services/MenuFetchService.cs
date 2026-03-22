@@ -38,25 +38,32 @@ public class MenuFetchService : IMenuFetchService
         {
             if (day.IsLocked) { lockedDays.Add(day.Date); continue; }
 
+            // Group slots by MealType (lunch/breakfast) — more reliable than MealCategory
+            var slotsByType = day.Slots
+                .GroupBy(s => s.MealType.ToLower() switch { "dinner" => "lunch", var t => t })
+                .ToDictionary(g => g.Key, g => g.ToList());
+            // Keep slotsByCategory for backward compat with ResolveDayPicks
             var slotsByCategory = day.Slots
                 .GroupBy(s => s.MealCategory.ToLower())
                 .ToDictionary(g => g.Key, g => g.ToList());
 
             foreach (var mealSlot in mealSlots)
             {
-                var category = mealSlot.Category;
+                var category = mealSlot.Category;         // "meal", "breakfast"
+                var apiCategory = mealSlot.ApiCategory; // "lunch", "breakfast"
 
-                // Only process this meal category if this delivery declares it
-                if (!day.MealCategories.Any(mc => mc.Equals(category, StringComparison.OrdinalIgnoreCase)))
+                // Only process if this delivery has slots for this type
+                if (!slotsByType.ContainsKey(apiCategory))
                     continue;
 
                 var mealTypeInfo = subscription.MealTypes
-                    .FirstOrDefault(mt => mt.MealCategory.Equals(category, StringComparison.OrdinalIgnoreCase));
+                    .FirstOrDefault(mt => mt.MealType.Equals(apiCategory, StringComparison.OrdinalIgnoreCase))
+                    ?? subscription.MealTypes.FirstOrDefault(mt => mt.MealCategory.Equals(mealSlot.Category, StringComparison.OrdinalIgnoreCase));
 
                 _logger.LogInformation("MealType for {Date} {Category}: KcalRange={KcalRange}, ProteinCategory={ProteinCategory}",
                     day.Date, category, mealTypeInfo?.KcalRange, mealTypeInfo?.ProteinCategory);
 
-                var firstSlot = slotsByCategory.GetValueOrDefault(category)?.FirstOrDefault();
+                var firstSlot = slotsByType.GetValueOrDefault(apiCategory)?.FirstOrDefault();
                 var uniqueIdForFetch = firstSlot?.UniqueId ?? string.Empty;
 
                 if (string.IsNullOrEmpty(uniqueIdForFetch))

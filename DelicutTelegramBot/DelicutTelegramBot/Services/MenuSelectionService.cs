@@ -61,16 +61,29 @@ public class MenuSelectionService : IMenuSelectionService
         var schedule = await ApiCallHelper.CallApiSafeAsync(() =>
             _delicutApi.GetDeliveryScheduleAsync(user.DelicutToken!, user.DelicutCustomerId!));
 
-        // Group meal types by category (e.g., lunch+dinner are both "meal") and sum quantities
+        // Log raw subscription meal types for debugging
+        foreach (var mt in subscription.MealTypes)
+            _logger.LogInformation("Subscription MealType: category={Category} type={Type} qty={Qty} kcal={Kcal}",
+                mt.MealCategory, mt.MealType, mt.Qty, mt.KcalRange);
+
+        // Group by MealType (lunch/breakfast/dinner) — NOT MealCategory (which can be "meal" for everything)
+        // Merge lunch+dinner into one slot since they share the same menu
         var mealSlots = subscription.MealTypes
-            .GroupBy(mt => mt.MealCategory.ToLower())
+            .GroupBy(mt => mt.MealType.ToLower() switch
+            {
+                "dinner" => "lunch",  // dinner shares lunch menu
+                var t => t
+            })
             .Select(g => new MealSlot
             {
-                Category = g.Key,
-                ApiCategory = g.First().MealType.ToLower(),  // Use first API type (e.g., "lunch" not "dinner")
+                Category = g.First().MealCategory.ToLower(),
+                ApiCategory = g.Key,  // "lunch", "breakfast", etc
                 Count = g.Sum(mt => mt.Qty)
             })
             .ToList();
+
+        _logger.LogInformation("Resolved mealSlots: [{Slots}]",
+            string.Join(", ", mealSlots.Select(s => $"{s.ApiCategory}({s.Category})x{s.Count}")));
 
         var previousChoices = user.Settings?.PreferHistory == true
             ? await _historyService.GetPreviousChoiceNamesAsync(userId)
