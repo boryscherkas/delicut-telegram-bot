@@ -231,7 +231,9 @@ public class SelectWeekHandler
                 d.DayOfWeek[..3], $"change:day:{d.Date:yyyy-MM-dd}"))
             .ToArray();
 
-        var keyboard = new InlineKeyboardMarkup(buttons.Chunk(3));
+        var rows = buttons.Chunk(3).ToList();
+        rows.Add([InlineKeyboardButton.WithCallbackData("Back", "select:show_week")]);
+        var keyboard = new InlineKeyboardMarkup(rows);
         await _bot.SendMessage(chatId, "Which day do you want to change?", replyMarkup: keyboard, cancellationToken: ct);
     }
 
