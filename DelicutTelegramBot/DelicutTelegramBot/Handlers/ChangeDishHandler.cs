@@ -49,7 +49,7 @@ public class ChangeDishHandler
             var lines = new List<string> { $"Dishes for {day.DayOfWeek} ({day.Date:MMM dd}):", "" };
             foreach (var d in day.Dishes)
             {
-                lines.Add($"  {d.SlotIndex}. {d.DishName} ({d.ProteinOption})");
+                lines.Add($"  {d.SlotIndex + 1}. {d.DishName} ({d.ProteinOption})");
                 lines.Add($"     {d.Kcal:F0} kcal | P:{d.Protein:F0} C:{d.Carb:F0} F:{d.Fat:F0}");
             }
             lines.Add($"\nDay total: {day.TotalKcal:F0} kcal | P:{day.TotalProtein:F0} C:{day.TotalCarb:F0} F:{day.TotalFat:F0}");
@@ -57,7 +57,7 @@ public class ChangeDishHandler
 
             var buttons = day.Dishes.Select(d =>
                 new[] { InlineKeyboardButton.WithCallbackData(
-                    $"{d.SlotIndex}. {d.DishName}",
+                    $"{d.SlotIndex + 1}. {d.DishName}",
                     $"change:dish:{date:yyyy-MM-dd}:{d.MealCategory}:{d.SlotIndex}") })
                 .ToList();
             buttons.Add(new[] { InlineKeyboardButton.WithCallbackData("Back", "select:change") });

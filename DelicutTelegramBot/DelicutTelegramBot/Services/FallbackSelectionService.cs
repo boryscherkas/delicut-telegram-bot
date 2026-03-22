@@ -60,8 +60,11 @@ public class FallbackSelectionService : IFallbackSelectionService
             if (!pool.TryGetValue(slot.Category, out var candidates))
                 continue;
 
+            // Deduplicate: keep best-scoring variant per dish ID, then exclude already-used
             var available = candidates
                 .Where(d => !usedIds.Contains(d.Id))
+                .GroupBy(d => d.Id)
+                .Select(g => g.First()) // One entry per dish (preferred variant comes first from flatten)
                 .ToList();
 
             var ranked = available

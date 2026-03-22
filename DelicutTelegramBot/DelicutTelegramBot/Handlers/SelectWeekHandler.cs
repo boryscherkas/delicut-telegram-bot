@@ -174,7 +174,7 @@ public class SelectWeekHandler
                     "snack" => "\ud83c\udf4e",
                     _ => "\ud83c\udf7d"
                 };
-                lines.Add($"  {emoji} {dish.SlotIndex}. {dish.DishName} ({dish.ProteinOption}) \u2014 {dish.Kcal:F0} kcal | P:{dish.Protein:F0} C:{dish.Carb:F0} F:{dish.Fat:F0}");
+                lines.Add($"  {emoji} {dish.SlotIndex + 1}. {dish.DishName} ({dish.ProteinOption}) \u2014 {dish.Kcal:F0} kcal | P:{dish.Protein:F0} C:{dish.Carb:F0} F:{dish.Fat:F0}");
             }
 
             // Show original (auto-selected) vs proposed comparison
