@@ -257,12 +257,18 @@ public class DelicutApiService : IDelicutApiService
         // API accepts one dish at a time via POST /v2/delivery/add-recipe
         foreach (var dish in selections)
         {
-            // Guard: protein_category must not be empty
+            // Guard: required fields must not be empty
             var proteinCat = dish.ProteinCategory;
             if (string.IsNullOrEmpty(proteinCat))
             {
-                proteinCat = "balance"; // Safe default
+                proteinCat = "balance";
                 _logger.LogWarning("Empty protein_category for dish {DishId}, defaulting to 'balance'", dish.DishId);
+            }
+            var size = dish.Size;
+            if (string.IsNullOrEmpty(size))
+            {
+                size = "extra_large";
+                _logger.LogWarning("Empty size for dish {DishId}, defaulting to 'extra_large'", dish.DishId);
             }
 
             var payload = new
@@ -272,7 +278,7 @@ public class DelicutApiService : IDelicutApiService
                 delivery_id = deliveryId,
                 recipe_id = dish.DishId,
                 variant = dish.ProteinOption,
-                size = dish.Size,
+                size = size,
                 unique_id = uniqueId,
                 protein_category = proteinCat
             };
