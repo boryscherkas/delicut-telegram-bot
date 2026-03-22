@@ -717,10 +717,15 @@ public class MenuSelectionService : IMenuSelectionService
     {
         var day = dayData.Day;
         var filtered = dayData.Filtered;
-        var slotsByCategory = dayData.SlotsByCategory;
-        var category = dayData.MealSlot.Category;
         var dayDishes = new List<ProposedDish>();
-        var firstSlot = slotsByCategory.GetValueOrDefault(category)?.FirstOrDefault();
+
+        // Look up slots by MealType (with dinner→lunch merge), NOT MealCategory
+        // Delicut sets MealCategory="meal" for everything, so grouping by it lumps all slots together
+        var apiCategory = dayData.MealSlot.ApiCategory; // "lunch", "breakfast"
+        var slotsForType = day.Slots
+            .Where(s => (s.MealType.ToLower() switch { "dinner" => "lunch", var t => t }) == apiCategory)
+            .ToList();
+        var firstSlot = slotsForType.FirstOrDefault();
 
         foreach (var pick in dayPicks)
         {
@@ -734,14 +739,13 @@ public class MenuSelectionService : IMenuSelectionService
             var variant = ResolveVariant(dish, pick.ProteinOption, user.Settings?.PreferredProteinVariant);
             if (variant is null) continue;
 
-            var slotsForCategory = slotsByCategory.GetValueOrDefault(category);
-            var matchingSlot = slotsForCategory?.ElementAtOrDefault(pick.SlotIndex);
+            var matchingSlot = slotsForType.ElementAtOrDefault(pick.SlotIndex);
             var slotUniqueId = matchingSlot?.UniqueId ?? firstSlot?.UniqueId ?? string.Empty;
             var defaultKcalRange = subscription.MealTypes.FirstOrDefault()?.KcalRange?.ToLower() ?? string.Empty;
             var defaultProteinCategory = subscription.MealTypes.FirstOrDefault()?.ProteinCategory ?? string.Empty;
 
             // Check if this pick matches what Delicut already has for this slot
-            var originalSlot = slotsForCategory?.ElementAtOrDefault(pick.SlotIndex);
+            var originalSlot = slotsForType.ElementAtOrDefault(pick.SlotIndex);
             var matchesOriginal = originalSlot != null
                 && originalSlot.CurrentDishId == pick.DishId
                 && (originalSlot.CurrentProteinOption ?? "").Equals(variant.ProteinOption, StringComparison.OrdinalIgnoreCase);
