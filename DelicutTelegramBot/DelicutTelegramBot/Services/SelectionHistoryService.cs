@@ -23,8 +23,14 @@ public class SelectionHistoryService : ISelectionHistoryService
 
     public async Task RecordSelectionsAsync(Guid userId, List<PendingSelection> selections, bool wasUserChoice)
     {
-        var dates = selections.Select(s => s.DeliveryDate).Distinct().ToList();
-        var dishIds = selections.Select(s => s.DishId).Distinct().ToList();
+        // Deduplicate incoming selections first (same dish+date+category = one record)
+        var uniqueSelections = selections
+            .GroupBy(s => (s.DishId, s.DeliveryDate, s.MealCategory))
+            .Select(g => g.First())
+            .ToList();
+
+        var dates = uniqueSelections.Select(s => s.DeliveryDate).Distinct().ToList();
+        var dishIds = uniqueSelections.Select(s => s.DishId).Distinct().ToList();
 
         var existingKeys = (await _db.SelectionHistories
             .Where(h => h.UserId == userId && dishIds.Contains(h.DishId) && dates.Contains(h.SelectedDate))
@@ -32,7 +38,7 @@ public class SelectionHistoryService : ISelectionHistoryService
             .ToListAsync())
             .ToHashSet();
 
-        foreach (var sel in selections)
+        foreach (var sel in uniqueSelections)
         {
             if (existingKeys.Contains(new { sel.DishId, SelectedDate = sel.DeliveryDate, sel.MealCategory }))
                 continue;

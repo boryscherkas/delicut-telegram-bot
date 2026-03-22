@@ -314,8 +314,9 @@ public class MenuSelectionService : IMenuSelectionService
 
     private async Task ClearExistingProposalsAsync(Guid userId)
     {
+        // Clear ALL pending selections (Proposed + stale Confirmed from previous runs)
         var existingProposed = await _db.PendingSelections
-            .Where(p => p.UserId == userId && p.Status == PendingSelectionStatus.Proposed)
+            .Where(p => p.UserId == userId)
             .ToListAsync();
         _db.PendingSelections.RemoveRange(existingProposed);
         await _db.SaveChangesAsync();
