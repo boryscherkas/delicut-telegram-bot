@@ -172,12 +172,21 @@ public class SelectWeekHandler
     private async Task HandleApproveDayPickerAsync(long chatId, ConversationState state, CancellationToken ct)
     {
         var proposal = (WeeklyProposal)state.FlowData["proposal"];
-        var buttons = proposal.Days.Select(d =>
-            InlineKeyboardButton.WithCallbackData(
-                $"{d.DayOfWeek[..3]} ({d.Date:MMM dd})", $"select:submit_day:{d.Date:yyyy-MM-dd}"))
+        var buttons = proposal.Days
+            .Where(d => !d.AllMatchOriginal) // Only show days that have changes
+            .Select(d =>
+                InlineKeyboardButton.WithCallbackData(
+                    $"{d.DayOfWeek[..3]} ({d.ChangedDishCount} changed)", $"select:submit_day:{d.Date:yyyy-MM-dd}"))
             .ToArray();
+
+        if (buttons.Length == 0)
+        {
+            await _bot.SendMessage(chatId, "All days already match Delicut — nothing to submit.", cancellationToken: ct);
+            return;
+        }
+
         var dayKeyboard = new InlineKeyboardMarkup(buttons.Chunk(3));
-        await _bot.SendMessage(chatId, "Which day to submit?", replyMarkup: dayKeyboard, cancellationToken: ct);
+        await _bot.SendMessage(chatId, "Which day to submit? (only days with changes shown)", replyMarkup: dayKeyboard, cancellationToken: ct);
     }
 
     private async Task HandleSubmitDayAsync(long chatId, string data, ConversationState state, CancellationToken ct)
@@ -264,7 +273,8 @@ public class SelectWeekHandler
                 "snack" => "🍎",
                 _ => "🍽"
             };
-            lines.Add($"  {emoji} {dish.SlotIndex + 1}. {dish.DishName} ({dish.ProteinOption}) \u2014 {dish.Kcal:F0} kcal | P:{dish.Protein:F0} C:{dish.Carb:F0} F:{dish.Fat:F0}");
+            var matchTag = dish.MatchesOriginal ? " =" : "";
+                lines.Add($"  {emoji} {dish.SlotIndex + 1}. {dish.DishName} ({dish.ProteinOption}){matchTag} — {dish.Kcal:F0} kcal | P:{dish.Protein:F0} C:{dish.Carb:F0} F:{dish.Fat:F0}");
         }
 
         var dayTotal = $"  {day.TotalKcal:F0} kcal | P:{day.TotalProtein:F0} C:{day.TotalCarb:F0} F:{day.TotalFat:F0}";
@@ -276,6 +286,10 @@ public class SelectWeekHandler
             dayTotal += $" (goal: {TelegramFormatHelper.FormatDiff(pDiff)}P {TelegramFormatHelper.FormatDiff(cDiff)}C {TelegramFormatHelper.FormatDiff(fDiff)}F)";
         }
         lines.Add(dayTotal);
+        if (day.AllMatchOriginal)
+            lines.Add("  ✓ No changes needed (matches Delicut)");
+        else if (day.ChangedDishCount < day.Dishes.Count)
+            lines.Add($"  {day.ChangedDishCount}/{day.Dishes.Count} dishes changed (= matches Delicut)");
     }
 
     private static void FormatWeekSummary(List<string> lines, WeeklyProposal proposal,

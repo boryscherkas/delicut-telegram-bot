@@ -12,4 +12,7 @@ public class ProposedDish
     public double Carb { get; set; }
     public double Fat { get; set; }
     public string AiReasoning { get; set; } = string.Empty;
+
+    /// <summary>True if this dish matches what Delicut already has for this slot.</summary>
+    public bool MatchesOriginal { get; set; }
 }

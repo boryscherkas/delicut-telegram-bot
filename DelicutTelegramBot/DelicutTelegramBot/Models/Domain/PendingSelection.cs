@@ -19,6 +19,7 @@ public class PendingSelection
     public double Protein { get; set; }
     public double Carb { get; set; }
     public double Fat { get; set; }
+    public bool MatchesOriginal { get; set; }
     public PendingSelectionStatus Status { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

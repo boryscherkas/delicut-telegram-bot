@@ -211,12 +211,29 @@ public class MenuSelectionService : IMenuSelectionService
         if (daySelections.Count == 0)
         {
             _logger.LogInformation("Day {Date} already submitted (no pending selections)", date);
-            return; // Silently succeed — idempotent
+            return;
         }
 
-        _logger.LogInformation("Submitting {Count} dishes for {Date}", daySelections.Count, date);
+        // Filter out dishes that match Delicut's current selection
+        var toSubmit = daySelections.Where(s => !s.MatchesOriginal).ToList();
+        var skipped = daySelections.Where(s => s.MatchesOriginal).ToList();
 
-        foreach (var sel in daySelections)
+        if (skipped.Count > 0)
+            _logger.LogInformation("Skipping {Count} dishes for {Date} (already match Delicut)", skipped.Count, date);
+
+        if (toSubmit.Count == 0)
+        {
+            _logger.LogInformation("Day {Date} fully matches Delicut — nothing to submit", date);
+            // Clean up pending selections since no changes needed
+            _db.PendingSelections.RemoveRange(daySelections);
+            await _db.SaveChangesAsync();
+            return;
+        }
+
+        _logger.LogInformation("Submitting {Count} changed dishes for {Date} (skipping {Skipped} matching)",
+            toSubmit.Count, date, skipped.Count);
+
+        foreach (var sel in toSubmit)
         {
             var submission = new DishSubmission
             {
@@ -654,6 +671,12 @@ public class MenuSelectionService : IMenuSelectionService
             var defaultKcalRange = subscription.MealTypes.FirstOrDefault()?.KcalRange?.ToLower() ?? string.Empty;
             var defaultProteinCategory = subscription.MealTypes.FirstOrDefault()?.ProteinCategory ?? string.Empty;
 
+            // Check if this pick matches what Delicut already has for this slot
+            var originalSlot = slotsForCategory?.ElementAtOrDefault(pick.SlotIndex);
+            var matchesOriginal = originalSlot != null
+                && originalSlot.CurrentDishId == pick.DishId
+                && (originalSlot.CurrentProteinOption ?? "").Equals(variant.ProteinOption, StringComparison.OrdinalIgnoreCase);
+
             var pending = new PendingSelection
             {
                 Id = Guid.NewGuid(),
@@ -673,6 +696,7 @@ public class MenuSelectionService : IMenuSelectionService
                 Protein = variant.Protein,
                 Carb = variant.Carb,
                 Fat = variant.Fat,
+                MatchesOriginal = matchesOriginal,
                 Status = PendingSelectionStatus.Proposed,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
@@ -690,7 +714,8 @@ public class MenuSelectionService : IMenuSelectionService
                 Protein = variant.Protein,
                 Carb = variant.Carb,
                 Fat = variant.Fat,
-                AiReasoning = pick.Reasoning
+                AiReasoning = pick.Reasoning,
+                MatchesOriginal = matchesOriginal
             });
         }
 

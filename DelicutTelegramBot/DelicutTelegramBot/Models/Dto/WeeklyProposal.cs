@@ -16,6 +16,12 @@ public class DayProposal
     public double TotalCarb => Dishes.Sum(d => d.Carb);
     public double TotalFat => Dishes.Sum(d => d.Fat);
 
+    /// <summary>True if every dish matches what Delicut already has — no submission needed.</summary>
+    public bool AllMatchOriginal => Dishes.Count > 0 && Dishes.All(d => d.MatchesOriginal);
+
+    /// <summary>Number of dishes that differ from Delicut's current selection.</summary>
+    public int ChangedDishCount => Dishes.Count(d => !d.MatchesOriginal);
+
     // Original (Delicut auto-selected) totals for comparison
     public double OriginalKcal { get; set; }
     public double OriginalProtein { get; set; }
