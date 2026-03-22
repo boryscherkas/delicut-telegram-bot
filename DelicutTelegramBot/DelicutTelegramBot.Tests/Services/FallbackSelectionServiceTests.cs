@@ -298,11 +298,16 @@ public class FallbackSelectionServiceTests
 
         var result = _sut.Select(dishes, SelectionStrategy.Default, slots, new());
 
-        var mainPicks = result.Picks.Where(p => p.MealCategory == "main").ToList();
+        var mainPicks = result.Picks.Where(p => p.MealCategory == "main").OrderBy(p => p.SlotIndex).ToList();
         var bfPicks   = result.Picks.Where(p => p.MealCategory == "breakfast").ToList();
 
-        Assert.All(mainPicks, p => Assert.Equal(0, p.SlotIndex));
-        Assert.All(bfPicks,   p => Assert.Equal(1, p.SlotIndex));
+        // Main picks: 0-based within category (0, 1)
+        Assert.Equal(2, mainPicks.Count);
+        Assert.Equal(0, mainPicks[0].SlotIndex);
+        Assert.Equal(1, mainPicks[1].SlotIndex);
+        // Breakfast: 0-based within category (0)
+        Assert.Single(bfPicks);
+        Assert.Equal(0, bfPicks[0].SlotIndex);
     }
 
     // ── Edge cases ────────────────────────────────────────────────────────────

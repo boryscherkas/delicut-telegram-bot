@@ -72,6 +72,7 @@ public class FallbackSelectionService : IFallbackSelectionService
                 .Take(slot.Count)
                 .ToList();
 
+            var pickIndex = 0;
             foreach (var (dish, _) in ranked)
             {
                 usedIds.Add(dish.Id);
@@ -84,7 +85,7 @@ public class FallbackSelectionService : IFallbackSelectionService
                     DishId = dish.Id,
                     ProteinOption = dish.ProteinOption,
                     MealCategory = dish.MealCategory,
-                    SlotIndex = slotIndex,
+                    SlotIndex = pickIndex++,
                     Reasoning = $"Fallback: {strategy} strategy."
                 });
             }
