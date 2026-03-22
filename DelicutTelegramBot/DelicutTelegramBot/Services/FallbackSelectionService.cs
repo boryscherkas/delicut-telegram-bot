@@ -15,7 +15,8 @@ public class FallbackSelectionService : IFallbackSelectionService
         double? fatGoal = null,
         List<string>? macroPriority = null,
         List<string>? favouriteDishNames = null,
-        int minFavouritesPerWeek = 0)
+        int minFavouritesPerWeek = 0,
+        double randomness = 0.0)
     {
         var usedDishNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var favourites = new HashSet<string>(favouriteDishNames ?? [], StringComparer.OrdinalIgnoreCase);
@@ -67,10 +68,18 @@ public class FallbackSelectionService : IFallbackSelectionService
                 .Select(g => g.First()) // One entry per dish (preferred variant comes first from flatten)
                 .ToList();
 
+            var rng = randomness > 0 ? new Random() : null;
             var ranked = available
-                .Select(d => (dish: d, score: Score(d, strategy, maxProtein, maxCarb, maxFat, maxKcal,
-                    usedCuisines, usedDishNames, proteinGoal, carbGoal, fatGoal,
-                    macroPriority ?? ["p", "c", "f"], favourites, favouritesStillNeeded)))
+                .Select(d =>
+                {
+                    var score = Score(d, strategy, maxProtein, maxCarb, maxFat, maxKcal,
+                        usedCuisines, usedDishNames, proteinGoal, carbGoal, fatGoal,
+                        macroPriority ?? ["p", "c", "f"], favourites, favouritesStillNeeded);
+                    // Add random jitter: randomness=0.15 means ±15% of score range
+                    if (rng != null)
+                        score += (rng.NextDouble() - 0.5) * 2 * randomness;
+                    return (dish: d, score);
+                })
                 .OrderByDescending(t => t.score)
                 .Take(slot.Count)
                 .ToList();

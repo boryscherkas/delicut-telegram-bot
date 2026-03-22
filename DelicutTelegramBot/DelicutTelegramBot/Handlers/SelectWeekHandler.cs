@@ -137,13 +137,13 @@ public class SelectWeekHandler
         {
             var dbUserId = (Guid)state.FlowData["user_id"];
             _stateManager.Reset(userId);
-            await _bot.SendMessage(chatId, "Regenerating selection...", cancellationToken: ct);
+            await _bot.SendMessage(chatId, "Regenerating with different dishes...", cancellationToken: ct);
 
-            // Re-run the full selection
+            // Re-run with randomness
             var user = await _userService.GetByTelegramIdAsync(userId);
             if (user is null) return;
 
-            var proposal = await _menuService.SelectForWeekAsync(user.Id);
+            var proposal = await _menuService.SelectForWeekAsync(user.Id, regenerate: true);
 
             var newState = _stateManager.GetOrCreate(userId);
             newState.CurrentFlow = ConversationFlow.Select_ReviewingWeek;

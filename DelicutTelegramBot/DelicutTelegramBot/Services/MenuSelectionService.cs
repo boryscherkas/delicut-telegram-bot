@@ -43,7 +43,7 @@ public class MenuSelectionService : IMenuSelectionService
         _logger = logger;
     }
 
-    public async Task<WeeklyProposal> SelectForWeekAsync(Guid userId)
+    public async Task<WeeklyProposal> SelectForWeekAsync(Guid userId, bool regenerate = false)
     {
         var user = await _db.Users
             .Include(u => u.Settings)
@@ -289,7 +289,8 @@ public class MenuSelectionService : IMenuSelectionService
             var fallbackResult = _fallbackService.Select(dayData.Summaries, weekRequest.Strategy,
                 [new MealSlot { Category = dayData.MealSlot.Category, ApiCategory = dayData.MealSlot.ApiCategory, Count = needed }],
                 fallbackWeekContext, weekRequest.ProteinGoalGrams, weekRequest.CarbGoalGrams, weekRequest.FatGoalGrams,
-                macroPriority, weekRequest.FavouriteDishNames, weekRequest.MinFavouritesPerWeek);
+                macroPriority, weekRequest.FavouriteDishNames, weekRequest.MinFavouritesPerWeek,
+                randomness: regenerate ? 0.15 : 0.0);
             // Add picks and update week context for next day's variety
             var dayDishNames = new List<string>();
             foreach (var pick in fallbackResult.Picks)
@@ -360,7 +361,8 @@ public class MenuSelectionService : IMenuSelectionService
                 var fallbackResult = _fallbackService.Select(dishSummaries, weekRequest.Strategy,
                     [new MealSlot { Category = category, ApiCategory = mealSlot.ApiCategory, Count = mealSlot.Count }],
                     weekContext, weekRequest.ProteinGoalGrams, weekRequest.CarbGoalGrams, weekRequest.FatGoalGrams,
-                    macroPriority, weekRequest.FavouriteDishNames, weekRequest.MinFavouritesPerWeek);
+                    macroPriority, weekRequest.FavouriteDishNames, weekRequest.MinFavouritesPerWeek,
+                    randomness: regenerate ? 0.15 : 0.0);
                 dayPicks = fallbackResult.Picks;
                 foreach (var p in dayPicks) p.Date = day.Date.ToString("yyyy-MM-dd");
             }
