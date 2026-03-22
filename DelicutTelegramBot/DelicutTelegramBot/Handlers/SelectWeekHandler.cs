@@ -61,6 +61,10 @@ public class SelectWeekHandler
             {
                 InlineKeyboardButton.WithCallbackData("Approve All", "select:approve_all"),
                 InlineKeyboardButton.WithCallbackData("Change Dishes", "select:change")
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("Regenerate", "select:regenerate")
             }
         });
 
@@ -127,6 +131,54 @@ public class SelectWeekHandler
             {
                 _logger.LogError(ex, "Failed to submit confirmed days for user {UserId}", dbUserId);
                 await _bot.SendMessage(chatId, $"Some days failed to submit. Try again.\n{ex.Message}", cancellationToken: ct);
+            }
+        }
+        else if (data == "select:regenerate")
+        {
+            var dbUserId = (Guid)state.FlowData["user_id"];
+            _stateManager.Reset(userId);
+            await _bot.SendMessage(chatId, "Regenerating selection...", cancellationToken: ct);
+
+            // Re-run the full selection
+            var user = await _userService.GetByTelegramIdAsync(userId);
+            if (user is null) return;
+
+            var proposal = await _menuService.SelectForWeekAsync(user.Id);
+
+            var newState = _stateManager.GetOrCreate(userId);
+            newState.CurrentFlow = ConversationFlow.Select_ReviewingWeek;
+            newState.FlowData["proposal"] = proposal;
+            newState.FlowData["user_id"] = user.Id;
+            newState.LastActivity = DateTime.UtcNow;
+
+            var newText = FormatWeekOverview(proposal,
+                user.Settings?.ProteinGoalGrams,
+                user.Settings?.CarbGoalGrams,
+                user.Settings?.FatGoalGrams);
+
+            var newKeyboard = new InlineKeyboardMarkup(new[]
+            {
+                new[]
+                {
+                    InlineKeyboardButton.WithCallbackData("Approve All", "select:approve_all"),
+                    InlineKeyboardButton.WithCallbackData("Change Dishes", "select:change")
+                },
+                new[]
+                {
+                    InlineKeyboardButton.WithCallbackData("Regenerate", "select:regenerate")
+                }
+            });
+
+            if (newText.Length <= 4096)
+            {
+                await _bot.SendMessage(chatId, newText, replyMarkup: newKeyboard, cancellationToken: ct);
+            }
+            else
+            {
+                var chunks = SplitMessage(newText, 4096);
+                for (int i = 0; i < chunks.Count - 1; i++)
+                    await _bot.SendMessage(chatId, chunks[i], cancellationToken: ct);
+                await _bot.SendMessage(chatId, chunks[^1], replyMarkup: newKeyboard, cancellationToken: ct);
             }
         }
         else if (data == "select:change")
