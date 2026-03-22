@@ -251,6 +251,12 @@ public class MenuSelectionService : IMenuSelectionService
 
         foreach (var sel in toSubmit)
         {
+            _logger.LogInformation(
+                "Submitting dish: {DishId} '{DishName}' date={Date} cat={MealCategory} type={MealType} " +
+                "slot={SlotIndex} deliveryId={DeliveryId} uniqueId={UniqueId} size={Size} proteinCat={ProteinCat} protein={Protein}",
+                sel.DishId, sel.DishName, sel.DeliveryDate, sel.MealCategory, sel.MealType,
+                sel.SlotIndex, sel.DeliveryId, sel.UniqueId, sel.VariantSize, sel.VariantProteinCategory, sel.VariantProtein);
+
             var submission = new DishSubmission
             {
                 DishId = sel.DishId,
