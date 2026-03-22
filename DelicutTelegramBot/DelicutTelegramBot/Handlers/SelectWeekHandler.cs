@@ -86,6 +86,13 @@ public class SelectWeekHandler
         var userId = callback.From.Id;
         var state = _stateManager.GetOrCreate(userId);
 
+        if (!state.FlowData.ContainsKey("proposal"))
+        {
+            await _bot.SendMessage(chatId, "Session expired. Please run /select again.", cancellationToken: ct);
+            await _bot.AnswerCallbackQuery(callback.Id, cancellationToken: ct);
+            return;
+        }
+
         if (data == "select:approve_all")
         {
             var dbUserId = (Guid)state.FlowData["user_id"];
