@@ -252,7 +252,7 @@ public class MenuSelectionServiceTests : IDisposable
             .ReturnsAsync([]);
 
         // Act
-        await _sut.SelectForWeekAsync(userId);
+        await _sut.SelectForWeekAsync(userId, regenerate: true);
 
         // Assert: old Proposed row is gone
         var remaining = await _db.PendingSelections
@@ -309,7 +309,7 @@ public class MenuSelectionServiceTests : IDisposable
             .ReturnsAsync([]);
 
         // Act
-        var result = await _sut.SelectForWeekAsync(userId);
+        var result = await _sut.SelectForWeekAsync(userId, regenerate: true);
 
         // Assert: locked day appears in LockedDays and has no DayProposal
         Assert.Contains(lockedDay, result.LockedDays);
@@ -369,7 +369,7 @@ public class MenuSelectionServiceTests : IDisposable
             .ReturnsAsync([]);
 
         // Act
-        await _sut.SelectForWeekAsync(userId);
+        await _sut.SelectForWeekAsync(userId, regenerate: true);
 
         // Assert: fallback was called
         _fallback.Verify(f => f.Select(

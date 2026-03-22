@@ -61,11 +61,6 @@ public class MenuSelectionService : IMenuSelectionService
         var schedule = await ApiCallHelper.CallApiSafeAsync(() =>
             _delicutApi.GetDeliveryScheduleAsync(user.DelicutToken!, user.DelicutCustomerId!));
 
-        // Log raw subscription meal types for debugging
-        foreach (var mt in subscription.MealTypes)
-            _logger.LogInformation("Subscription MealType: category={Category} type={Type} qty={Qty} kcal={Kcal}",
-                mt.MealCategory, mt.MealType, mt.Qty, mt.KcalRange);
-
         // Group by MealType (lunch/breakfast/dinner) — NOT MealCategory (which can be "meal" for everything)
         // Merge lunch+dinner into one slot since they share the same menu
         var mealSlots = subscription.MealTypes
@@ -85,30 +80,33 @@ public class MenuSelectionService : IMenuSelectionService
         _logger.LogInformation("Resolved mealSlots: [{Slots}]",
             string.Join(", ", mealSlots.Select(s => $"{s.ApiCategory}({s.Category})x{s.Count}")));
 
+        // Phase 1: Fetch and filter menus (needed for dish change cache)
+        var weekMenuData = await _menuFetchService.FetchAndFilterMenusAsync(user, subscription, schedule, mealSlots);
+
+        if (!regenerate)
+        {
+            // Show current Delicut selection — no algorithm, just read what's on the schedule
+            _logger.LogInformation("Showing current Delicut selection for {DayCount} days", schedule.Days.Count);
+            return await BuildCurrentSelectionProposalAsync(userId, user, schedule, weekMenuData.LockedDays);
+        }
+
+        // Regenerate: run algorithmic selection
+        var dayMenuData = weekMenuData.Days;
         var previousChoices = user.Settings?.PreferHistory == true
             ? await _historyService.GetPreviousChoiceNamesAsync(userId)
             : [];
 
         LogSelectionSettings(userId, user);
 
-        // Phase 1: Fetch and filter menus for all unlocked days
-        var weekMenuData = await _menuFetchService.FetchAndFilterMenusAsync(user, subscription, schedule, mealSlots);
-        var dayMenuData = weekMenuData.Days;
-
-        // Phase 2: Build the selection request
         var macroPriority = (user.Settings?.MacroPriority ?? "p,c,f").Split(',').Select(s => s.Trim()).ToList();
         var weekRequest = BuildWeekRequest(user, dayMenuData, mealSlots, previousChoices, macroPriority);
         var expectedPerDay = dayMenuData
             .GroupBy(d => d.Day.Date.ToString(DateFormat))
             .ToDictionary(g => g.Key, g => g.Sum(d => d.MealSlot.Count));
 
-        // Phase 3: AI or fallback selection
         var weekResult = await SelectDishesAsync(user, weekRequest, dayMenuData, expectedPerDay, macroPriority, regenerate);
-
-        // Phase 4: Fix over-repeated dishes
         FixOverRepeatedDishes(weekResult, dayMenuData);
 
-        // Phase 5: Resolve picks into PendingSelections and build proposal
         return await ResolvePicksToProposalAsync(userId, user, subscription, weekRequest, weekResult, dayMenuData, macroPriority, regenerate, weekMenuData.LockedDays);
     }
 
@@ -374,6 +372,102 @@ public class MenuSelectionService : IMenuSelectionService
             .ToListAsync();
         _db.PendingSelections.RemoveRange(existingProposed);
         await _db.SaveChangesAsync();
+    }
+
+    private async Task<WeeklyProposal> BuildCurrentSelectionProposalAsync(
+        Guid userId, User user, WeekDeliverySchedule schedule, List<DateOnly> lockedDays)
+    {
+        var dayProposals = new List<DayProposal>();
+
+        foreach (var day in schedule.Days)
+        {
+            if (day.IsLocked) continue;
+
+            var slots = day.Slots
+                .OrderBy(s => s.MealType.ToLower() switch { "breakfast" => 0, "dinner" => 2, _ => 1 })
+                .ToList();
+
+            var dishes = new List<ProposedDish>();
+            // Track slot index per category (for MealCategory grouping)
+            var categorySlotIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var slot in slots)
+            {
+                if (string.IsNullOrEmpty(slot.CurrentDishId)) continue;
+
+                var mealCategory = slot.MealType.ToLower() switch
+                {
+                    "breakfast" => "breakfast",
+                    _ => "meal"
+                };
+
+                if (!categorySlotIndex.TryGetValue(mealCategory, out var slotIdx))
+                    slotIdx = 0;
+                categorySlotIndex[mealCategory] = slotIdx + 1;
+
+                dishes.Add(new ProposedDish
+                {
+                    DishId = slot.CurrentDishId,
+                    DishName = slot.CurrentDishName ?? "",
+                    ProteinOption = slot.CurrentProteinOption ?? "",
+                    MealCategory = mealCategory,
+                    SlotIndex = slotIdx,
+                    Kcal = slot.CurrentKcal,
+                    Protein = slot.CurrentProtein,
+                    Carb = slot.CurrentCarb,
+                    Fat = slot.CurrentFat,
+                    MatchesOriginal = true // All match — this IS the current selection
+                });
+
+                // Save as PendingSelection so submit/change works
+                _db.PendingSelections.Add(new PendingSelection
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = userId,
+                    DeliveryDate = day.Date,
+                    DeliveryId = day.DeliveryId,
+                    UniqueId = slot.UniqueId,
+                    MealCategory = mealCategory,
+                    MealType = slot.MealType,
+                    SlotIndex = slotIdx,
+                    DishId = slot.CurrentDishId,
+                    DishName = slot.CurrentDishName ?? "",
+                    VariantProtein = slot.CurrentProteinOption ?? "",
+                    VariantSize = slot.KcalRange,
+                    VariantProteinCategory = slot.ProteinCategory,
+                    Kcal = slot.CurrentKcal,
+                    Protein = slot.CurrentProtein,
+                    Carb = slot.CurrentCarb,
+                    Fat = slot.CurrentFat,
+                    MatchesOriginal = true,
+                    Status = PendingSelectionStatus.Proposed,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                });
+            }
+
+            if (dishes.Count > 0)
+            {
+                dayProposals.Add(new DayProposal
+                {
+                    Date = day.Date,
+                    DayOfWeek = day.DayOfWeek,
+                    Dishes = dishes,
+                    OriginalKcal = slots.Sum(s => s.CurrentKcal),
+                    OriginalProtein = slots.Sum(s => s.CurrentProtein),
+                    OriginalCarb = slots.Sum(s => s.CurrentCarb),
+                    OriginalFat = slots.Sum(s => s.CurrentFat)
+                });
+            }
+        }
+
+        await _db.SaveChangesAsync();
+
+        return new WeeklyProposal
+        {
+            Days = dayProposals.OrderBy(d => d.Date).ToList(),
+            LockedDays = lockedDays
+        };
     }
 
     private void LogSelectionSettings(Guid userId, User user)

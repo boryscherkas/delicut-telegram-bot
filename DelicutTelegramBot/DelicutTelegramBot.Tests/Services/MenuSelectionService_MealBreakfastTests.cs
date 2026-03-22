@@ -228,7 +228,7 @@ public class MenuSelectionService_MealBreakfastTests : IDisposable
             });
 
         // Act
-        var result = await _sut.SelectForWeekAsync(user.Id);
+        var result = await _sut.SelectForWeekAsync(user.Id, regenerate: true);
 
         // Assert
         Assert.Equal(2, result.Days.Count); // 2 days
@@ -312,7 +312,7 @@ public class MenuSelectionService_MealBreakfastTests : IDisposable
             });
 
         // Act
-        var result = await _sut.SelectForWeekAsync(user.Id);
+        var result = await _sut.SelectForWeekAsync(user.Id, regenerate: true);
 
         // Assert
         Assert.Single(result.Days);
@@ -379,7 +379,7 @@ public class MenuSelectionService_MealBreakfastTests : IDisposable
             });
 
         // Act
-        var result = await _sut.SelectForWeekAsync(user.Id);
+        var result = await _sut.SelectForWeekAsync(user.Id, regenerate: true);
 
         // Assert
         var dayResult = Assert.Single(result.Days);
