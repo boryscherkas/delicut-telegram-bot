@@ -42,6 +42,9 @@ public class WednesdayReminderService : BackgroundService
             if (stoppingToken.IsCancellationRequested) break;
 
             await SendRemindersAsync(stoppingToken);
+
+            // Defensive delay to prevent CPU spin on clock edge cases
+            await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
         }
     }
 

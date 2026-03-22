@@ -132,9 +132,7 @@ public class StartHandler
 
                 var user = await _userService.CreateOrUpdateAsync(
                     userId, message.Chat.Id, email,
-                    loginResponse.Token, loginResponse.CustomerId);
-
-                user.DelicutSubscriptionId = subscription.Id;
+                    loginResponse.Token, loginResponse.CustomerId, subscription.Id);
 
                 _stateManager.Reset(userId);
 

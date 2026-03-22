@@ -23,15 +23,19 @@ public class SelectionHistoryService : ISelectionHistoryService
 
     public async Task RecordSelectionsAsync(Guid userId, List<PendingSelection> selections, bool wasUserChoice)
     {
+        var dates = selections.Select(s => s.DeliveryDate).Distinct().ToList();
+        var dishIds = selections.Select(s => s.DishId).Distinct().ToList();
+
+        var existingKeys = (await _db.SelectionHistories
+            .Where(h => h.UserId == userId && dishIds.Contains(h.DishId) && dates.Contains(h.SelectedDate))
+            .Select(h => new { h.DishId, h.SelectedDate, h.MealCategory })
+            .ToListAsync())
+            .ToHashSet();
+
         foreach (var sel in selections)
         {
-            var exists = await _db.SelectionHistories.AnyAsync(h =>
-                h.UserId == userId &&
-                h.DishId == sel.DishId &&
-                h.SelectedDate == sel.DeliveryDate &&
-                h.MealCategory == sel.MealCategory);
-
-            if (exists) continue;
+            if (existingKeys.Contains(new { sel.DishId, SelectedDate = sel.DeliveryDate, sel.MealCategory }))
+                continue;
 
             _db.SelectionHistories.Add(new SelectionHistory
             {

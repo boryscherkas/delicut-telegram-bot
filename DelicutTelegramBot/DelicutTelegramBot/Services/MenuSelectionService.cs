@@ -165,7 +165,7 @@ public class MenuSelectionService : IMenuSelectionService
         var weekRequest = new AiSelectionRequest
         {
             Strategy = user.Settings?.Strategy ?? SelectionStrategy.Default,
-            Date = dayMenuData.FirstOrDefault().Day?.Date ?? DateOnly.FromDateTime(DateTime.Today),
+            Date = dayMenuData.Count > 0 ? dayMenuData[0].Day?.Date ?? DateOnly.FromDateTime(DateTime.Today) : DateOnly.FromDateTime(DateTime.Today),
             MealSlots = mealSlots,
             AvailableDishes = [],
             WeekMenu = weekMenu,
@@ -560,6 +560,60 @@ public class MenuSelectionService : IMenuSelectionService
         }
 
         await _db.SaveChangesAsync();
+    }
+
+    public async Task SubmitDayAsync(Guid userId, DateOnly date)
+    {
+        // Confirm + submit just this one day
+        await ConfirmDayAsync(userId, date);
+
+        var user = await _db.Users.FirstAsync(u => u.Id == userId);
+        var daySelections = await _db.PendingSelections
+            .Where(p => p.UserId == userId && p.DeliveryDate == date && p.Status == PendingSelectionStatus.Confirmed)
+            .ToListAsync();
+
+        if (daySelections.Count == 0)
+        {
+            _logger.LogWarning("No confirmed selections for {Date}", date);
+            return;
+        }
+
+        // Submit all dishes first; only remove from DB if ALL succeed
+        foreach (var sel in daySelections)
+        {
+            var submission = new DishSubmission
+            {
+                DishId = sel.DishId,
+                ProteinOption = sel.VariantProtein,
+                MealCategory = sel.MealCategory,
+                SlotIndex = sel.SlotIndex,
+                Size = sel.VariantSize,
+                ProteinCategory = sel.VariantProteinCategory
+            };
+
+            try
+            {
+                await CallApiSafeAsync(async () =>
+                {
+                    await _delicutApi.SubmitDishSelectionAsync(
+                        user.DelicutToken!, user.DelicutCustomerId!,
+                        sel.DeliveryId, sel.UniqueId, [submission]);
+                    return true;
+                });
+            }
+            catch (DelicutAuthExpiredException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to submit dish {DishId} for {Date}", sel.DishId, date);
+                throw;
+            }
+        }
+
+        // All API calls succeeded — now persist state changes
+        await _historyService.RecordSelectionsAsync(userId, daySelections, wasUserChoice: true);
+        _db.PendingSelections.RemoveRange(daySelections);
+        await _db.SaveChangesAsync();
+        _logger.LogInformation("Submitted {Count} dishes for {Date}", daySelections.Count, date);
     }
 
     public async Task ConfirmWeekAsync(Guid userId)

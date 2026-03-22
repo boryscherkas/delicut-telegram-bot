@@ -108,7 +108,8 @@ public class BotHandler
                     "Session expired. Use /start to re-authenticate.",
                     cancellationToken: ct);
             }
-            _logger.LogWarning("Delicut auth expired during update handling");
+            var logUserId = update.Message?.From?.Id ?? update.CallbackQuery?.From?.Id;
+            _logger.LogWarning("Delicut auth expired during update {UpdateId} for user {UserId}", update.Id, logUserId);
         }
         catch (Exception ex)
         {

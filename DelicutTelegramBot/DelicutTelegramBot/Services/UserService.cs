@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using DelicutTelegramBot.Infrastructure;
 using DelicutTelegramBot.Models.Domain;
 
@@ -7,8 +8,13 @@ namespace DelicutTelegramBot.Services;
 public class UserService : IUserService
 {
     private readonly AppDbContext _db;
+    private readonly ILogger<UserService> _logger;
 
-    public UserService(AppDbContext db) => _db = db;
+    public UserService(AppDbContext db, ILogger<UserService> logger)
+    {
+        _db = db;
+        _logger = logger;
+    }
 
     public async Task<User?> GetByTelegramIdAsync(long telegramUserId)
     {
@@ -18,7 +24,7 @@ public class UserService : IUserService
     }
 
     public async Task<User> CreateOrUpdateAsync(long telegramUserId, long chatId,
-        string email, string token, string customerId)
+        string email, string token, string customerId, string? subscriptionId = null)
     {
         var user = await _db.Users
             .Include(u => u.Settings)
@@ -34,6 +40,7 @@ public class UserService : IUserService
                 DelicutEmail = email,
                 DelicutToken = token,
                 DelicutCustomerId = customerId,
+                DelicutSubscriptionId = subscriptionId,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
                 Settings = new UserSettings
@@ -54,6 +61,7 @@ public class UserService : IUserService
             user.DelicutEmail = email;
             user.DelicutToken = token;
             user.DelicutCustomerId = customerId;
+            if (subscriptionId != null) user.DelicutSubscriptionId = subscriptionId;
             user.UpdatedAt = DateTime.UtcNow;
         }
 
@@ -64,7 +72,11 @@ public class UserService : IUserService
     public async Task UpdateSettingsAsync(Guid userId, Action<UserSettings> update)
     {
         var settings = await _db.UserSettings.FirstOrDefaultAsync(s => s.UserId == userId);
-        if (settings is null) return;
+        if (settings is null)
+        {
+            _logger.LogWarning("No UserSettings found for user {UserId} — update silently skipped", userId);
+            return;
+        }
         update(settings);
         settings.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();

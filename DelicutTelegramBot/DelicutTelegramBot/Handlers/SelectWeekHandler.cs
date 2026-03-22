@@ -1,6 +1,7 @@
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
+using DelicutTelegramBot.Helpers;
 using DelicutTelegramBot.Models.Dto;
 using DelicutTelegramBot.Services;
 using DelicutTelegramBot.State;
@@ -77,7 +78,7 @@ public class SelectWeekHandler
         else
         {
             // Send overview in chunks, keyboard on last message
-            var chunks = SplitMessage(text, 4096);
+            var chunks = TelegramFormatHelper.SplitMessage(text, 4096);
             for (int i = 0; i < chunks.Count - 1; i++)
                 await _bot.SendMessage(message.Chat.Id, chunks[i], cancellationToken: ct);
             await _bot.SendMessage(message.Chat.Id, chunks[^1], replyMarkup: keyboard, cancellationToken: ct);
@@ -176,7 +177,7 @@ public class SelectWeekHandler
             }
             else
             {
-                var chunks = SplitMessage(newText, 4096);
+                var chunks = TelegramFormatHelper.SplitMessage(newText, 4096);
                 for (int i = 0; i < chunks.Count - 1; i++)
                     await _bot.SendMessage(chatId, chunks[i], cancellationToken: ct);
                 await _bot.SendMessage(chatId, chunks[^1], replyMarkup: newKeyboard, cancellationToken: ct);
@@ -237,7 +238,7 @@ public class SelectWeekHandler
             }
             else
             {
-                var chunks = SplitMessage(weekText, 4096);
+                var chunks = TelegramFormatHelper.SplitMessage(weekText, 4096);
                 for (int i = 0; i < chunks.Count - 1; i++)
                     await _bot.SendMessage(chatId, chunks[i], cancellationToken: ct);
                 await _bot.SendMessage(chatId, chunks[^1], replyMarkup: weekKeyboard, cancellationToken: ct);
@@ -278,15 +279,15 @@ public class SelectWeekHandler
 
         foreach (var day in proposal.Days)
         {
-            lines.Add($"\ud83d\udcc5 {day.DayOfWeek} ({day.Date:MMM dd}):");
+            lines.Add($"📅 {day.DayOfWeek} ({day.Date:MMM dd}):");
             foreach (var dish in day.Dishes)
             {
                 var emoji = dish.MealCategory.ToLower() switch
                 {
-                    "meal" => "\ud83c\udf7d",
-                    "breakfast" => "\ud83e\udd63",
-                    "snack" => "\ud83c\udf4e",
-                    _ => "\ud83c\udf7d"
+                    "meal" => "🍽",
+                    "breakfast" => "🥣",
+                    "snack" => "🍎",
+                    _ => "🍽"
                 };
                 lines.Add($"  {emoji} {dish.SlotIndex + 1}. {dish.DishName} ({dish.ProteinOption}) \u2014 {dish.Kcal:F0} kcal | P:{dish.Protein:F0} C:{dish.Carb:F0} F:{dish.Fat:F0}");
             }
@@ -298,7 +299,7 @@ public class SelectWeekHandler
                 var pDiff = day.TotalProtein - (proteinGoal ?? 0);
                 var cDiff = day.TotalCarb - (carbGoal ?? 0);
                 var fDiff = day.TotalFat - (fatGoal ?? 0);
-                dayTotal += $" (goal: {Diff(pDiff)}P {Diff(cDiff)}C {Diff(fDiff)}F)";
+                dayTotal += $" (goal: {TelegramFormatHelper.FormatDiff(pDiff)}P {TelegramFormatHelper.FormatDiff(cDiff)}C {TelegramFormatHelper.FormatDiff(fDiff)}F)";
             }
             lines.Add(dayTotal);
             lines.Add("");
@@ -323,31 +324,11 @@ public class SelectWeekHandler
             lines.Add($"Week avg NOW: {avgKcal:F0} kcal | P:{avgP:F0} C:{avgC:F0} F:{avgF:F0}");
             if (hasGoals)
             {
-                lines.Add($"vs Goal:      {Diff(avgP - (proteinGoal ?? 0))}P {Diff(avgC - (carbGoal ?? 0))}C {Diff(avgF - (fatGoal ?? 0))}F");
+                lines.Add($"vs Goal:      {TelegramFormatHelper.FormatDiff(avgP - (proteinGoal ?? 0))}P {TelegramFormatHelper.FormatDiff(avgC - (carbGoal ?? 0))}C {TelegramFormatHelper.FormatDiff(avgF - (fatGoal ?? 0))}F");
             }
         }
 
         return string.Join("\n", lines);
     }
 
-    private static string Diff(double val) => val >= 0 ? $"+{val:F0}" : $"{val:F0}";
-
-    private static List<string> SplitMessage(string text, int maxLen)
-    {
-        var chunks = new List<string>();
-        var lines = text.Split('\n');
-        var current = new System.Text.StringBuilder();
-        foreach (var line in lines)
-        {
-            if (current.Length + line.Length + 1 > maxLen && current.Length > 0)
-            {
-                chunks.Add(current.ToString());
-                current.Clear();
-            }
-            if (current.Length > 0) current.AppendLine();
-            current.Append(line);
-        }
-        if (current.Length > 0) chunks.Add(current.ToString());
-        return chunks;
-    }
 }

@@ -36,6 +36,8 @@ public class DelicutApiService : IDelicutApiService
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly string _baseUrl;
+    private readonly string _userAgent;
+    private readonly string _secChUa;
     private readonly ILogger<DelicutApiService> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -51,6 +53,10 @@ public class DelicutApiService : IDelicutApiService
     {
         _httpClientFactory = httpClientFactory;
         _baseUrl = configuration["Delicut:BaseUrl"] ?? "https://apis.delicut.ae/api";
+        _userAgent = configuration["Delicut:UserAgent"]
+            ?? "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
+        _secChUa = configuration["Delicut:SecChUa"]
+            ?? "\"Chromium\";v=\"146\", \"Not-A.Brand\";v=\"24\", \"Google Chrome\";v=\"146\"";
         _logger = logger;
     }
 
@@ -303,20 +309,19 @@ public class DelicutApiService : IDelicutApiService
         return client;
     }
 
-    private static void ApplyDefaultHeaders(HttpClient client)
+    private void ApplyDefaultHeaders(HttpClient client)
     {
         client.DefaultRequestHeaders.TryAddWithoutValidation("accept", "application/json, text/plain, */*");
         client.DefaultRequestHeaders.TryAddWithoutValidation("accept-language", "en-US,en;q=0.9");
         client.DefaultRequestHeaders.TryAddWithoutValidation("origin", "https://delicut.ae");
         client.DefaultRequestHeaders.TryAddWithoutValidation("referer", "https://delicut.ae/");
-        client.DefaultRequestHeaders.TryAddWithoutValidation("sec-ch-ua", "\"Chromium\";v=\"146\", \"Not-A.Brand\";v=\"24\", \"Google Chrome\";v=\"146\"");
+        client.DefaultRequestHeaders.TryAddWithoutValidation("sec-ch-ua", _secChUa);
         client.DefaultRequestHeaders.TryAddWithoutValidation("sec-ch-ua-mobile", "?0");
         client.DefaultRequestHeaders.TryAddWithoutValidation("sec-ch-ua-platform", "\"macOS\"");
         client.DefaultRequestHeaders.TryAddWithoutValidation("sec-fetch-dest", "empty");
         client.DefaultRequestHeaders.TryAddWithoutValidation("sec-fetch-mode", "cors");
         client.DefaultRequestHeaders.TryAddWithoutValidation("sec-fetch-site", "same-site");
-        client.DefaultRequestHeaders.TryAddWithoutValidation("user-agent",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36");
+        client.DefaultRequestHeaders.TryAddWithoutValidation("user-agent", _userAgent);
     }
 
     /// <summary>

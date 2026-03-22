@@ -306,14 +306,16 @@ public class SettingsHandler
         }
         else if (data == "settings:ai_toggle")
         {
-            await _userService.UpdateSettingsAsync(user.Id, s => s.UseAiSelection = !s.UseAiSelection);
-            user.Settings.UseAiSelection = !user.Settings.UseAiSelection;
+            var newValue = !user.Settings.UseAiSelection;
+            await _userService.UpdateSettingsAsync(user.Id, s => s.UseAiSelection = newValue);
+            user.Settings.UseAiSelection = newValue;
             await SendSettingsKeyboard(chatId, user.Settings, ct, callback.Message.MessageId);
         }
         else if (data == "settings:history")
         {
-            await _userService.UpdateSettingsAsync(user.Id, s => s.PreferHistory = !s.PreferHistory);
-            user.Settings.PreferHistory = !user.Settings.PreferHistory;
+            var newValue = !user.Settings.PreferHistory;
+            await _userService.UpdateSettingsAsync(user.Id, s => s.PreferHistory = newValue);
+            user.Settings.PreferHistory = newValue;
             await SendSettingsKeyboard(chatId, user.Settings, ct, callback.Message.MessageId);
         }
         else if (data == "settings:reauth")

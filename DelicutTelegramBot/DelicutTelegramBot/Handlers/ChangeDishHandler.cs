@@ -1,6 +1,7 @@
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
+using DelicutTelegramBot.Helpers;
 using DelicutTelegramBot.Models.Domain;
 using DelicutTelegramBot.Models.Dto;
 using DelicutTelegramBot.Services;
@@ -30,8 +31,15 @@ public class ChangeDishHandler
         var chatId = callback.Message!.Chat.Id;
         var userId = callback.From.Id;
         var state = _stateManager.GetOrCreate(userId);
-        var dbUserId = (Guid)state.FlowData["user_id"];
-        var proposal = (WeeklyProposal)state.FlowData["proposal"];
+
+        if (!state.FlowData.TryGetValue("user_id", out var userIdObj) ||
+            !state.FlowData.TryGetValue("proposal", out var proposalObj) ||
+            userIdObj is not Guid dbUserId || proposalObj is not WeeklyProposal proposal)
+        {
+            await _bot.SendMessage(chatId, "Session expired. Please run /select again.", cancellationToken: ct);
+            await _bot.AnswerCallbackQuery(callback.Id, cancellationToken: ct);
+            return;
+        }
 
         if (data.StartsWith("change:day:"))
         {
@@ -115,7 +123,7 @@ public class ChangeDishHandler
                 var newWeekP = curWeekP + protDiff;
                 lines.Add($"\n  {a.DishName} ({a.ProteinOption})");
                 lines.Add($"  {a.Kcal:F0} kcal | P:{a.Protein:F0} C:{a.Carb:F0} F:{a.Fat:F0}");
-                lines.Add($"  Day: {newDayKcal:F0} kcal P:{newDayP:F0} ({FormatDiff(kcalDiff)} kcal {FormatDiff(protDiff)}P)");
+                lines.Add($"  Day: {newDayKcal:F0} kcal P:{newDayP:F0} ({TelegramFormatHelper.FormatDiff(kcalDiff)} kcal {TelegramFormatHelper.FormatDiff(protDiff)}P)");
                 lines.Add($"  Week: {newWeekKcal:F0} kcal P:{newWeekP:F0}");
             }
 
@@ -214,12 +222,12 @@ public class ChangeDishHandler
                 $"Day ({day?.DayOfWeek ?? date.ToString()}):",
                 $"  Before: {oldDayKcal:F0} kcal | P:{oldDayProtein:F0} C:{oldDayCarb:F0} F:{oldDayFat:F0}",
                 $"  After:  {newDayKcal:F0} kcal | P:{newDayProtein:F0} C:{newDayCarb:F0} F:{newDayFat:F0}",
-                $"  Diff:   {FormatDiff(newDayKcal - oldDayKcal)} kcal | {FormatDiff(newDayProtein - oldDayProtein)}P {FormatDiff(newDayCarb - oldDayCarb)}C {FormatDiff(newDayFat - oldDayFat)}F",
+                $"  Diff:   {TelegramFormatHelper.FormatDiff(newDayKcal - oldDayKcal)} kcal | {TelegramFormatHelper.FormatDiff(newDayProtein - oldDayProtein)}P {TelegramFormatHelper.FormatDiff(newDayCarb - oldDayCarb)}C {TelegramFormatHelper.FormatDiff(newDayFat - oldDayFat)}F",
                 "",
                 "Week total:",
                 $"  Before: {oldWeekKcal:F0} kcal | P:{oldWeekProtein:F0}",
                 $"  After:  {newWeekKcal:F0} kcal | P:{newWeekProtein:F0}",
-                $"  Diff:   {FormatDiff(newWeekKcal - oldWeekKcal)} kcal | {FormatDiff(newWeekProtein - oldWeekProtein)}P",
+                $"  Diff:   {TelegramFormatHelper.FormatDiff(newWeekKcal - oldWeekKcal)} kcal | {TelegramFormatHelper.FormatDiff(newWeekProtein - oldWeekProtein)}P",
             };
 
             var keyboard = new InlineKeyboardMarkup(new[]
@@ -269,6 +277,4 @@ public class ChangeDishHandler
         await _bot.AnswerCallbackQuery(callback.Id, cancellationToken: ct);
     }
 
-    private static string FormatDiff(double diff) =>
-        diff >= 0 ? $"+{diff:F0}" : $"{diff:F0}";
 }
