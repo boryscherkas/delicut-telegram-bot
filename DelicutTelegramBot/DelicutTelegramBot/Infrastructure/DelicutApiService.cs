@@ -281,7 +281,7 @@ public class DelicutApiService : IDelicutApiService
             };
 
             var payloadJson = JsonSerializer.Serialize(payload);
-            _logger.LogDebug("Submitting dish: {Payload}", payloadJson);
+            _logger.LogInformation("Submitting: {Payload}", payloadJson);
 
             var response = await PostJsonRawAsync(client, $"{_baseUrl}/v2/delivery/add-recipe", payloadJson);
             await EnsureSuccess(response);

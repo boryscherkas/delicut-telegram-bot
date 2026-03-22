@@ -36,7 +36,10 @@ public class DishFilterService : IDishFilterService
             //    (e.g., "balance") so the AI can pick variants with better macros.
             //    The preferred category's variants come first.
             var matchingVariants = dish.Variants
-                .Where(v => v.Size.Equals(kcalRange, StringComparison.OrdinalIgnoreCase))
+                .Where(v => !string.IsNullOrEmpty(v.Size)
+                    && !string.IsNullOrEmpty(v.ProteinCategory)
+                    && v.Size.Equals(kcalRange, StringComparison.OrdinalIgnoreCase)
+                    && v.Kcal > 0) // Skip empty/unavailable variants (0 kcal = not real)
                 .OrderByDescending(v => v.ProteinCategory.Equals(proteinCategory, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 

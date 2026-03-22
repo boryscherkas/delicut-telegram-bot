@@ -60,10 +60,11 @@ public class SelectWeekHandler
             new[]
             {
                 InlineKeyboardButton.WithCallbackData("Approve All", "select:approve_all"),
-                InlineKeyboardButton.WithCallbackData("Change Dishes", "select:change")
+                InlineKeyboardButton.WithCallbackData("Approve Day", "select:approve_day"),
             },
             new[]
             {
+                InlineKeyboardButton.WithCallbackData("Change Dishes", "select:change"),
                 InlineKeyboardButton.WithCallbackData("Regenerate", "select:regenerate")
             }
         });
@@ -179,6 +180,35 @@ public class SelectWeekHandler
                 for (int i = 0; i < chunks.Count - 1; i++)
                     await _bot.SendMessage(chatId, chunks[i], cancellationToken: ct);
                 await _bot.SendMessage(chatId, chunks[^1], replyMarkup: newKeyboard, cancellationToken: ct);
+            }
+        }
+        else if (data == "select:approve_day")
+        {
+            // Show day picker for per-day approval
+            var proposal = (WeeklyProposal)state.FlowData["proposal"];
+            var buttons = proposal.Days.Select(d =>
+                InlineKeyboardButton.WithCallbackData(
+                    $"{d.DayOfWeek[..3]} ({d.Date:MMM dd})", $"select:submit_day:{d.Date:yyyy-MM-dd}"))
+                .ToArray();
+            var dayKeyboard = new InlineKeyboardMarkup(buttons.Chunk(3));
+            await _bot.SendMessage(chatId, "Which day to submit?", replyMarkup: dayKeyboard, cancellationToken: ct);
+        }
+        else if (data.StartsWith("select:submit_day:"))
+        {
+            var dateStr = data["select:submit_day:".Length..];
+            var date = DateOnly.Parse(dateStr);
+            var dbUserId = (Guid)state.FlowData["user_id"];
+
+            await _menuService.ConfirmDayAsync(dbUserId, date);
+            try
+            {
+                await _menuService.ConfirmWeekAsync(dbUserId); // Submits only Confirmed days
+                await _bot.SendMessage(chatId, $"{date:ddd MMM dd} submitted to Delicut!", cancellationToken: ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to submit day {Date}", date);
+                await _bot.SendMessage(chatId, $"Failed to submit {date:MMM dd}: {ex.Message}", cancellationToken: ct);
             }
         }
         else if (data == "select:show_week")

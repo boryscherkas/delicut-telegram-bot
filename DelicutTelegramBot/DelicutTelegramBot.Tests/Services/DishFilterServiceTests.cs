@@ -26,7 +26,9 @@ public class DishFilterServiceTests
     private static DishVariant MakeVariant(string size, string proteinCategory) => new()
     {
         Size = size,
-        ProteinCategory = proteinCategory
+        ProteinCategory = proteinCategory,
+        Kcal = 500, // Must be > 0 to pass filter
+        ProteinOption = "chicken"
     };
 
     // ── stop-word tests ───────────────────────────────────────────────────────
