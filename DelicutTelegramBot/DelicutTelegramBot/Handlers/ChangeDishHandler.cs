@@ -175,38 +175,13 @@ public class ChangeDishHandler
         var day = proposal.Days.FirstOrDefault(d => d.Date == date);
         var oldDish = day?.Dishes.FirstOrDefault(d => d.MealCategory == mealCategory && d.SlotIndex == slotIndex);
 
-        // Capture totals before replacement
-        var oldDayKcal = day?.TotalKcal ?? 0;
-        var oldDayProtein = day?.TotalProtein ?? 0;
-        var oldDayCarb = day?.TotalCarb ?? 0;
-        var oldDayFat = day?.TotalFat ?? 0;
-        var oldWeekKcal = proposal.Days.Sum(d => d.TotalKcal);
-        var oldWeekProtein = proposal.Days.Sum(d => d.TotalProtein);
-
         await _menuService.ReplaceDishAsync(dbUserId, date, mealCategory, slotIndex, picked.DishId, picked.ProteinOption);
 
         // Update proposal in memory from cached menu
         UpdateProposalInMemory(state, day, oldDish, picked, date, mealCategory, slotIndex);
 
-        // Compute new totals and build comparison message
-        var lines = BuildReplacementSummary(
-            oldDish, day, proposal, date,
-            oldDayKcal, oldDayProtein, oldDayCarb, oldDayFat,
-            oldWeekKcal, oldWeekProtein);
-
-        var keyboard = new InlineKeyboardMarkup(new[]
-        {
-            new[]
-            {
-                InlineKeyboardButton.WithCallbackData("Confirm Day", $"change:confirm:{date:yyyy-MM-dd}"),
-                InlineKeyboardButton.WithCallbackData("Change Another", $"change:day:{date:yyyy-MM-dd}")
-            },
-            new[]
-            {
-                InlineKeyboardButton.WithCallbackData("Show Full Week", "select:show_week")
-            }
-        });
-        await _bot.SendMessage(chatId, string.Join("\n", lines), replyMarkup: keyboard, cancellationToken: ct);
+        // Go straight back to the day view with updated dishes
+        await HandleSelectDayAsync(chatId, $"change:day:{date:yyyy-MM-dd}", state, proposal, ct);
     }
 
     private static void UpdateProposalInMemory(
@@ -249,37 +224,6 @@ public class ChangeDishHandler
             Carb = newCarb,
             Fat = newFat
         };
-    }
-
-    private static List<string> BuildReplacementSummary(
-        ProposedDish? oldDish, DayProposal? day, WeeklyProposal proposal,
-        DateOnly date, double oldDayKcal, double oldDayProtein, double oldDayCarb,
-        double oldDayFat, double oldWeekKcal, double oldWeekProtein)
-    {
-        var newDayKcal = day?.TotalKcal ?? 0;
-        var newDayProtein = day?.TotalProtein ?? 0;
-        var newDayCarb = day?.TotalCarb ?? 0;
-        var newDayFat = day?.TotalFat ?? 0;
-        var newWeekKcal = proposal.Days.Sum(d => d.TotalKcal);
-        var newWeekProtein = proposal.Days.Sum(d => d.TotalProtein);
-
-        // The new dish name is the current dish at that slot (already updated in memory)
-        var newDishName = day?.Dishes.FirstOrDefault(d => d.SlotIndex == oldDish?.SlotIndex)?.DishName ?? "?";
-
-        return
-        [
-            $"Replaced: {oldDish?.DishName ?? "?"} -> {newDishName}",
-            "",
-            $"Day ({day?.DayOfWeek ?? date.ToString()}):",
-            $"  Before: {oldDayKcal:F0} kcal | P:{oldDayProtein:F0} C:{oldDayCarb:F0} F:{oldDayFat:F0}",
-            $"  After:  {newDayKcal:F0} kcal | P:{newDayProtein:F0} C:{newDayCarb:F0} F:{newDayFat:F0}",
-            $"  Diff:   {TelegramFormatHelper.FormatDiff(newDayKcal - oldDayKcal)} kcal | {TelegramFormatHelper.FormatDiff(newDayProtein - oldDayProtein)}P {TelegramFormatHelper.FormatDiff(newDayCarb - oldDayCarb)}C {TelegramFormatHelper.FormatDiff(newDayFat - oldDayFat)}F",
-            "",
-            "Week total:",
-            $"  Before: {oldWeekKcal:F0} kcal | P:{oldWeekProtein:F0}",
-            $"  After:  {newWeekKcal:F0} kcal | P:{newWeekProtein:F0}",
-            $"  Diff:   {TelegramFormatHelper.FormatDiff(newWeekKcal - oldWeekKcal)} kcal | {TelegramFormatHelper.FormatDiff(newWeekProtein - oldWeekProtein)}P",
-        ];
     }
 
     private async Task HandleConfirmDayAsync(
