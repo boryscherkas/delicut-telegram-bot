@@ -182,28 +182,82 @@ public class MenuSelectionService : IMenuSelectionService
             MinFavouritesPerWeek = user.Settings?.MinFavouritesPerWeek ?? 0
         };
 
-        _logger.LogInformation("Sending ONE AI request for {DayCount} days, {TotalDishes} total dishes",
-            weekMenu.Count, weekMenu.Sum(d => d.AvailableDishes.Count));
+        // Build expected picks per day: { "2026-03-24" -> 3, "2026-03-25" -> 3 }
+        var expectedPerDay = dayMenuData
+            .ToDictionary(d => d.Day.Date.ToString("yyyy-MM-dd"), d => d.MealSlot.Count);
+        var totalExpected = expectedPerDay.Values.Sum();
 
-        AiSelectionResult weekResult;
-        try
+        _logger.LogInformation("Sending AI request for {DayCount} days, {TotalDishes} dishes, expecting {Expected} picks",
+            weekMenu.Count, weekMenu.Sum(d => d.AvailableDishes.Count), totalExpected);
+
+        // Try AI with retries if picks are incomplete
+        AiSelectionResult weekResult = new() { Picks = [] };
+        const int maxRetries = 3;
+
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
-            var aiResult = await _openAiService.SelectDishesAsync(weekRequest);
-            if (aiResult != null)
+            try
             {
-                weekResult = aiResult;
-                _logger.LogInformation("AI selected {PickCount} dishes for the week", weekResult.Picks.Count);
+                var aiResult = await _openAiService.SelectDishesAsync(weekRequest);
+                if (aiResult != null)
+                {
+                    weekResult = aiResult;
+
+                    // Validate: check each day has correct pick count
+                    var picksByDay = weekResult.Picks.GroupBy(p => p.Date)
+                        .ToDictionary(g => g.Key, g => g.Count());
+                    var incompleteDays = expectedPerDay
+                        .Where(kv => picksByDay.GetValueOrDefault(kv.Key, 0) < kv.Value)
+                        .Select(kv => kv.Key)
+                        .ToList();
+
+                    if (incompleteDays.Count == 0)
+                    {
+                        _logger.LogInformation("AI attempt {Attempt}: all {Days} days complete ({Picks} picks)",
+                            attempt, expectedPerDay.Count, weekResult.Picks.Count);
+                        break;
+                    }
+
+                    _logger.LogWarning("AI attempt {Attempt}: {Incomplete}/{Total} days incomplete: [{Days}]",
+                        attempt, incompleteDays.Count, expectedPerDay.Count, string.Join(", ", incompleteDays));
+
+                    if (attempt == maxRetries)
+                        _logger.LogWarning("Max retries reached, will fill missing days with fallback");
+                }
+                else
+                {
+                    _logger.LogWarning("AI attempt {Attempt}: returned null", attempt);
+                    if (attempt == maxRetries) break;
+                }
             }
-            else
+            catch (Exception ex)
             {
-                _logger.LogWarning("AI returned null, using fallback for each day");
-                weekResult = new AiSelectionResult { Picks = [] };
+                _logger.LogWarning(ex, "AI attempt {Attempt} failed", attempt);
+                if (attempt == maxRetries) break;
             }
         }
-        catch (Exception ex)
+
+        // Fill incomplete days with fallback
+        foreach (var (dayDate, needed) in expectedPerDay)
         {
-            _logger.LogWarning(ex, "AI failed, using fallback for each day");
-            weekResult = new AiSelectionResult { Picks = [] };
+            var currentPicks = weekResult.Picks.Count(p => p.Date == dayDate);
+            if (currentPicks >= needed) continue;
+
+            var dayData = dayMenuData.FirstOrDefault(d => d.Day.Date.ToString("yyyy-MM-dd") == dayDate);
+            if (dayData.Summaries == null) continue;
+
+            _logger.LogInformation("Filling {Date}: has {Current}/{Needed} picks, using fallback for rest",
+                dayDate, currentPicks, needed);
+
+            // Remove incomplete picks for this day and replace entirely with fallback
+            weekResult.Picks.RemoveAll(p => p.Date == dayDate);
+            var fallbackResult = _fallbackService.Select(dayData.Summaries, weekRequest.Strategy,
+                [new MealSlot { Category = dayData.MealSlot.Category, ApiCategory = dayData.MealSlot.ApiCategory, Count = needed }],
+                new(), weekRequest.ProteinGoalGrams, weekRequest.CarbGoalGrams, weekRequest.FatGoalGrams,
+                macroPriority, weekRequest.FavouriteDishNames, weekRequest.MinFavouritesPerWeek);
+            foreach (var pick in fallbackResult.Picks)
+                pick.Date = dayDate;
+            weekResult.Picks.AddRange(fallbackResult.Picks);
         }
 
         // ── Phase 3: Resolve AI picks into PendingSelections ──
