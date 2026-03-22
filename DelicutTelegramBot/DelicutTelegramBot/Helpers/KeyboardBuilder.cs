@@ -26,23 +26,6 @@ public static class KeyboardBuilder
         });
 
     /// <summary>
-    /// Returns the week overview keyboard without the Approve Day button (used after regenerate and show_week).
-    /// </summary>
-    public static InlineKeyboardMarkup WeekOverviewCompactKeyboard() =>
-        new(new[]
-        {
-            new[]
-            {
-                InlineKeyboardButton.WithCallbackData("Approve All", "select:approve_all"),
-                InlineKeyboardButton.WithCallbackData("Change Dishes", "select:change")
-            },
-            new[]
-            {
-                InlineKeyboardButton.WithCallbackData("Regenerate", "select:regenerate")
-            }
-        });
-
-    /// <summary>
     /// Sends a message, splitting it into multiple messages if it exceeds the Telegram 4096 character limit.
     /// The keyboard is attached to the last message chunk only.
     /// </summary>

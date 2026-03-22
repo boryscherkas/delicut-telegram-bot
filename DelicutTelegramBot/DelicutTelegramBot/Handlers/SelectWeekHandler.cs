@@ -166,7 +166,7 @@ public class SelectWeekHandler
             user.Settings?.FatGoalGrams);
 
         await KeyboardBuilder.SendOrSplitMessageAsync(_bot, chatId, text,
-            KeyboardBuilder.WeekOverviewCompactKeyboard(), ct);
+            KeyboardBuilder.WeekOverviewKeyboard(), ct);
     }
 
     private async Task HandleApproveDayPickerAsync(long chatId, ConversationState state, CancellationToken ct)
@@ -215,7 +215,7 @@ public class SelectWeekHandler
             user?.Settings?.ProteinGoalGrams, user?.Settings?.CarbGoalGrams, user?.Settings?.FatGoalGrams);
 
         await KeyboardBuilder.SendOrSplitMessageAsync(_bot, chatId, weekText,
-            KeyboardBuilder.WeekOverviewCompactKeyboard(), ct);
+            KeyboardBuilder.WeekOverviewKeyboard(), ct);
     }
 
     private async Task HandleChangeAsync(long chatId, long userId, ConversationState state, CancellationToken ct)
