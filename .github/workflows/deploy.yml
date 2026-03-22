@@ -9,9 +9,11 @@ jobs:
     name: Deploy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: superfly/flyctl-actions/setup-flyctl@master
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
       - run: flyctl deploy --local-only
         env:
