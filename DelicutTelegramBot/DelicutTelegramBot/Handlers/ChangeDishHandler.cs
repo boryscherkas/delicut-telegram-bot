@@ -81,7 +81,10 @@ public class ChangeDishHandler
                 $"{i + 1}. {d.DishName}",
                 $"change:dish:{date:yyyy-MM-dd}:{d.MealCategory}:{d.SlotIndex}") })
             .ToList();
-        buttons.Add([InlineKeyboardButton.WithCallbackData("Back", "select:show_week")]);
+        buttons.Add([
+            InlineKeyboardButton.WithCallbackData("Submit to Delicut", $"select:submit_day:{date:yyyy-MM-dd}"),
+            InlineKeyboardButton.WithCallbackData("Back", "select:show_week")
+        ]);
 
         await _bot.SendMessage(chatId, string.Join("\n", lines),
             replyMarkup: new InlineKeyboardMarkup(buttons), cancellationToken: ct);
