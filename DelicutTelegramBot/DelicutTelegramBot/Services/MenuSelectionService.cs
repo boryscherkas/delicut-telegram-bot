@@ -649,15 +649,22 @@ public class MenuSelectionService : IMenuSelectionService
             existing.AddRange(dayDishes.Select(d => d.DishName));
             weekContext[dateKey] = existing;
 
+            // Only sum original macros for slots matching THIS category's MealType
+            // (not all slots — that would double-count when merging meal + breakfast)
+            var apiCategory = dayData.MealSlot.ApiCategory;
+            var categorySlots = day.Slots
+                .Where(s => s.MealType.ToLower() switch { "dinner" => "lunch", var t => t } == apiCategory)
+                .ToList();
+
             dayProposals.Add(new DayProposal
             {
                 Date = day.Date,
                 DayOfWeek = day.DayOfWeek,
                 Dishes = dayDishes,
-                OriginalKcal = day.Slots.Sum(s => s.CurrentKcal),
-                OriginalProtein = day.Slots.Sum(s => s.CurrentProtein),
-                OriginalCarb = day.Slots.Sum(s => s.CurrentCarb),
-                OriginalFat = day.Slots.Sum(s => s.CurrentFat)
+                OriginalKcal = categorySlots.Sum(s => s.CurrentKcal),
+                OriginalProtein = categorySlots.Sum(s => s.CurrentProtein),
+                OriginalCarb = categorySlots.Sum(s => s.CurrentCarb),
+                OriginalFat = categorySlots.Sum(s => s.CurrentFat)
             });
         }
 
