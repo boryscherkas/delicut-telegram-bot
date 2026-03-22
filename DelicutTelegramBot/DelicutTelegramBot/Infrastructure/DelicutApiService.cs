@@ -259,16 +259,13 @@ public class DelicutApiService : IDelicutApiService
         {
             // Guard: required fields must not be empty
             var proteinCat = dish.ProteinCategory;
-            if (string.IsNullOrEmpty(proteinCat))
-            {
-                proteinCat = "balance";
-                _logger.LogWarning("Empty protein_category for dish {DishId}, defaulting to 'balance'", dish.DishId);
-            }
             var size = dish.Size;
-            if (string.IsNullOrEmpty(size))
+
+            if (string.IsNullOrEmpty(proteinCat) || string.IsNullOrEmpty(size))
             {
-                size = "extra_large"; // Last-resort default — should be set from subscription at creation
-                _logger.LogError("Empty size for dish {DishId} — this should have been set from subscription. Defaulting to 'extra_large'", dish.DishId);
+                _logger.LogError("Skipping dish {DishId}: size='{Size}', protein_category='{ProteinCat}' — required fields missing",
+                    dish.DishId, size, proteinCat);
+                continue;
             }
 
             var payload = new
@@ -278,7 +275,7 @@ public class DelicutApiService : IDelicutApiService
                 delivery_id = deliveryId,
                 recipe_id = dish.DishId,
                 variant = dish.ProteinOption,
-                size = size,
+                size,
                 unique_id = uniqueId,
                 protein_category = proteinCat
             };

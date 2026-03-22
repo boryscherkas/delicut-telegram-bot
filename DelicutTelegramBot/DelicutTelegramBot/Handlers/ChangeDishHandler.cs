@@ -240,18 +240,30 @@ public class ChangeDishHandler
         {
             var dateStr = data["change:confirm:".Length..];
             var date = DateOnly.Parse(dateStr);
+
+            // Confirm + submit this day to Delicut immediately
             await _menuService.ConfirmDayAsync(dbUserId, date);
+            try
+            {
+                await _menuService.ConfirmWeekAsync(dbUserId); // Submits only Confirmed days
+                await _bot.SendMessage(chatId, $"Day {date:MMM dd} submitted to Delicut!",
+                    cancellationToken: ct);
+            }
+            catch (Exception ex)
+            {
+                await _bot.SendMessage(chatId, $"Day {date:MMM dd} confirmed but failed to submit: {ex.Message}",
+                    cancellationToken: ct);
+            }
 
             var keyboard = new InlineKeyboardMarkup(new[]
             {
                 new[]
                 {
-                    InlineKeyboardButton.WithCallbackData("Submit All Confirmed", "select:submit_confirmed"),
-                    InlineKeyboardButton.WithCallbackData("Change More Days", "select:change")
+                    InlineKeyboardButton.WithCallbackData("Change More Days", "select:change"),
+                    InlineKeyboardButton.WithCallbackData("Show Full Week", "select:show_week")
                 }
             });
-            await _bot.SendMessage(chatId, $"Day {date:MMM dd} confirmed! Submit to Delicut or keep changing?",
-                replyMarkup: keyboard, cancellationToken: ct);
+            await _bot.SendMessage(chatId, "Continue?", replyMarkup: keyboard, cancellationToken: ct);
         }
 
         await _bot.AnswerCallbackQuery(callback.Id, cancellationToken: ct);
