@@ -668,7 +668,10 @@ public class MenuSelectionService : IMenuSelectionService
             {
                 Date = g.Key,
                 DayOfWeek = g.First().DayOfWeek,
-                Dishes = g.SelectMany(d => d.Dishes).ToList(),
+                Dishes = g.SelectMany(d => d.Dishes)
+                    .OrderBy(d => d.MealCategory.ToLower() switch { "breakfast" => 0, "snack" => 2, _ => 1 })
+                    .ThenBy(d => d.SlotIndex)
+                    .ToList(),
                 OriginalKcal = g.Sum(d => d.OriginalKcal),
                 OriginalProtein = g.Sum(d => d.OriginalProtein),
                 OriginalCarb = g.Sum(d => d.OriginalCarb),

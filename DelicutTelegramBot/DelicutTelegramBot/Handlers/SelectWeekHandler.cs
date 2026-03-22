@@ -264,8 +264,9 @@ public class SelectWeekHandler
         bool hasGoals, double? proteinGoal, double? carbGoal, double? fatGoal)
     {
         lines.Add($"📅 {day.DayOfWeek} ({day.Date:MMM dd}):");
-        foreach (var dish in day.Dishes)
+        for (var i = 0; i < day.Dishes.Count; i++)
         {
+            var dish = day.Dishes[i];
             var emoji = dish.MealCategory.ToLower() switch
             {
                 "meal" => "🍽",
@@ -274,7 +275,7 @@ public class SelectWeekHandler
                 _ => "🍽"
             };
             var matchTag = dish.MatchesOriginal ? " =" : "";
-                lines.Add($"  {emoji} {dish.SlotIndex + 1}. {dish.DishName} ({dish.ProteinOption}){matchTag} — {dish.Kcal:F0} kcal | P:{dish.Protein:F0} C:{dish.Carb:F0} F:{dish.Fat:F0}");
+            lines.Add($"  {emoji} {i + 1}. {dish.DishName} ({dish.ProteinOption}){matchTag} — {dish.Kcal:F0} kcal | P:{dish.Protein:F0} C:{dish.Carb:F0} F:{dish.Fat:F0}");
         }
 
         var dayTotal = $"  {day.TotalKcal:F0} kcal | P:{day.TotalProtein:F0} C:{day.TotalCarb:F0} F:{day.TotalFat:F0}";
