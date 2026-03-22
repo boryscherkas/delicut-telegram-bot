@@ -187,15 +187,17 @@ public class MenuSelectionService : IMenuSelectionService
             .ToDictionary(d => d.Day.Date.ToString("yyyy-MM-dd"), d => d.MealSlot.Count);
         var totalExpected = expectedPerDay.Values.Sum();
 
-        _logger.LogInformation("Sending AI request for {DayCount} days, {TotalDishes} dishes, expecting {Expected} picks",
-            weekMenu.Count, weekMenu.Sum(d => d.AvailableDishes.Count), totalExpected);
-
-        // Try AI with retries if picks are incomplete
+        var useAi = user.Settings?.UseAiSelection ?? false;
         AiSelectionResult weekResult = new() { Picks = [] };
-        const int maxRetries = 3;
 
-        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        if (useAi)
         {
+            _logger.LogInformation("Using AI selection for {DayCount} days, {TotalDishes} dishes, expecting {Expected} picks",
+                weekMenu.Count, weekMenu.Sum(d => d.AvailableDishes.Count), totalExpected);
+
+            const int maxRetries = 3;
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
+            {
             try
             {
                 var aiResult = await _openAiService.SelectDishesAsync(weekRequest);
@@ -249,9 +251,28 @@ public class MenuSelectionService : IMenuSelectionService
                 _logger.LogWarning(ex, "AI attempt {Attempt} failed", attempt);
                 if (attempt == maxRetries) break;
             }
+            }
+        }
+        else
+        {
+            _logger.LogInformation("Using algorithmic selection for {DayCount} days", dayMenuData.Count);
         }
 
-        // Fill incomplete days with fallback
+        // Fill incomplete/empty days with fallback (always runs — covers algorithm-only mode too)
+        // Build running week context for variety across days
+        var fallbackWeekContext = new Dictionary<string, List<string>>();
+
+        // Pre-populate context from any AI picks already present
+        foreach (var pick in weekResult.Picks)
+        {
+            if (!fallbackWeekContext.ContainsKey(pick.Date))
+                fallbackWeekContext[pick.Date] = [];
+            // Resolve dish name from menu data
+            var pickDayData = dayMenuData.FirstOrDefault(d => d.Day.Date.ToString("yyyy-MM-dd") == pick.Date);
+            var dishName = pickDayData.Filtered?.FirstOrDefault(d => d.Id == pick.DishId)?.DishName ?? pick.DishId;
+            fallbackWeekContext[pick.Date].Add(dishName);
+        }
+
         foreach (var (dayDate, needed) in expectedPerDay)
         {
             var currentPicks = weekResult.Picks.Count(p => p.Date == dayDate);
@@ -260,18 +281,25 @@ public class MenuSelectionService : IMenuSelectionService
             var dayData = dayMenuData.FirstOrDefault(d => d.Day.Date.ToString("yyyy-MM-dd") == dayDate);
             if (dayData.Summaries == null) continue;
 
-            _logger.LogInformation("Filling {Date}: has {Current}/{Needed} picks, using fallback for rest",
-                dayDate, currentPicks, needed);
+            _logger.LogInformation("{Mode} {Date}: has {Current}/{Needed} picks, filling with fallback",
+                useAi ? "AI incomplete" : "Algorithm", dayDate, currentPicks, needed);
 
             // Remove incomplete picks for this day and replace entirely with fallback
             weekResult.Picks.RemoveAll(p => p.Date == dayDate);
             var fallbackResult = _fallbackService.Select(dayData.Summaries, weekRequest.Strategy,
                 [new MealSlot { Category = dayData.MealSlot.Category, ApiCategory = dayData.MealSlot.ApiCategory, Count = needed }],
-                new(), weekRequest.ProteinGoalGrams, weekRequest.CarbGoalGrams, weekRequest.FatGoalGrams,
+                fallbackWeekContext, weekRequest.ProteinGoalGrams, weekRequest.CarbGoalGrams, weekRequest.FatGoalGrams,
                 macroPriority, weekRequest.FavouriteDishNames, weekRequest.MinFavouritesPerWeek);
+            // Add picks and update week context for next day's variety
+            var dayDishNames = new List<string>();
             foreach (var pick in fallbackResult.Picks)
+            {
                 pick.Date = dayDate;
+                var dishName = dayData.Summaries.FirstOrDefault(s => s.Id == pick.DishId)?.Name ?? pick.DishId;
+                dayDishNames.Add(dishName);
+            }
             weekResult.Picks.AddRange(fallbackResult.Picks);
+            fallbackWeekContext[dayDate] = dayDishNames;
         }
 
         // ── Post-process: fix over-repeated dishes (>2 days) ──

@@ -19,6 +19,9 @@ public class UserSettings
     // Preferred protein variant (e.g., "Shrimps", "Chicken") — always pick this when available
     public string? PreferredProteinVariant { get; set; }
 
+    // Use AI (OpenAI) for selection or algorithmic fallback. Default: algorithm.
+    public bool UseAiSelection { get; set; } = false;
+
     // Favourite dishes that must appear at least MinFavouritesPerWeek times per week
     public List<string> FavouriteDishNames { get; set; } = [];
     public int MinFavouritesPerWeek { get; set; }

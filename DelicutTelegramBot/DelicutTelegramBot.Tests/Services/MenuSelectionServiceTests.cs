@@ -34,6 +34,32 @@ public class MenuSelectionServiceTests : IDisposable
         _openAi = new Mock<IOpenAiService>();
         _dishFilter = new Mock<IDishFilterService>();
         _fallback = new Mock<IFallbackSelectionService>();
+        // Default fallback: return a single pick for any request
+        _fallback.Setup(f => f.Select(It.IsAny<List<DishSummary>>(), It.IsAny<SelectionStrategy>(),
+                It.IsAny<List<MealSlot>>(), It.IsAny<Dictionary<string, List<string>>>(),
+                It.IsAny<double?>(), It.IsAny<double?>(), It.IsAny<double?>(),
+                It.IsAny<List<string>?>(), It.IsAny<List<string>?>(), It.IsAny<int>()))
+            .Returns((List<DishSummary> dishes, SelectionStrategy _, List<MealSlot> slots,
+                Dictionary<string, List<string>> _, double? _, double? _, double? _,
+                List<string>? _, List<string>? _, int _) =>
+            {
+                var picks = new List<AiDishPick>();
+                if (dishes.Count > 0)
+                {
+                    for (int i = 0; i < (slots.FirstOrDefault()?.Count ?? 1) && i < dishes.Count; i++)
+                    {
+                        picks.Add(new AiDishPick
+                        {
+                            DishId = dishes[i].Id,
+                            ProteinOption = dishes[i].ProteinOption,
+                            MealCategory = dishes[i].MealCategory,
+                            SlotIndex = i,
+                            Reasoning = "Fallback"
+                        });
+                    }
+                }
+                return new AiSelectionResult { Picks = picks };
+            });
         _history = new Mock<ISelectionHistoryService>();
         _stateManager = new ConversationStateManager();
         var logger = Mock.Of<ILogger<MenuSelectionService>>();

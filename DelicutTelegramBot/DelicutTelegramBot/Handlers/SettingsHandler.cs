@@ -304,6 +304,12 @@ public class SettingsHandler
                 "Send 'clear' to remove favourites.",
                 cancellationToken: ct);
         }
+        else if (data == "settings:ai_toggle")
+        {
+            await _userService.UpdateSettingsAsync(user.Id, s => s.UseAiSelection = !s.UseAiSelection);
+            user.Settings.UseAiSelection = !user.Settings.UseAiSelection;
+            await SendSettingsKeyboard(chatId, user.Settings, ct, callback.Message.MessageId);
+        }
         else if (data == "settings:history")
         {
             await _userService.UpdateSettingsAsync(user.Id, s => s.PreferHistory = !s.PreferHistory);
@@ -368,6 +374,7 @@ public class SettingsHandler
             new[] { InlineKeyboardButton.WithCallbackData(proteinLabel, "settings:protein") },
             new[] { InlineKeyboardButton.WithCallbackData(favsLabel, "settings:favourites") },
             new[] { InlineKeyboardButton.WithCallbackData(stopWordsLabel, "settings:stopwords") },
+            new[] { InlineKeyboardButton.WithCallbackData($"Selection: {(settings.UseAiSelection ? "AI (OpenAI)" : "Algorithm")}", "settings:ai_toggle") },
             new[] { InlineKeyboardButton.WithCallbackData($"Prefer History: {(settings.PreferHistory ? "ON" : "OFF")}", "settings:history") },
             new[] { InlineKeyboardButton.WithCallbackData("Re-authenticate", "settings:reauth") },
         });
