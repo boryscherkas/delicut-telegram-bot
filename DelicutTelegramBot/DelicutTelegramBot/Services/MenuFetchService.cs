@@ -4,26 +4,32 @@ using DelicutTelegramBot.Models.Delicut;
 using DelicutTelegramBot.Models.Domain;
 using DelicutTelegramBot.Models.Dto;
 using DelicutTelegramBot.State;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace DelicutTelegramBot.Services;
 
 public class MenuFetchService : IMenuFetchService
 {
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(6);
+
     private readonly IDelicutApiService _delicutApi;
     private readonly IDishFilterService _dishFilterService;
     private readonly ConversationStateManager _stateManager;
+    private readonly AppDbContext _db;
     private readonly ILogger<MenuFetchService> _logger;
 
     public MenuFetchService(
         IDelicutApiService delicutApi,
         IDishFilterService dishFilterService,
         ConversationStateManager stateManager,
+        AppDbContext db,
         ILogger<MenuFetchService> logger)
     {
         _delicutApi = delicutApi;
         _dishFilterService = dishFilterService;
         _stateManager = stateManager;
+        _db = db;
         _logger = logger;
     }
 
@@ -77,14 +83,12 @@ public class MenuFetchService : IMenuFetchService
                 }
 
                 List<Dish> menu;
-                var cacheKey = $"menu:{day.Date}:{category}";
+                var memoryCacheKey = $"menu:{day.Date}:{category}";
                 try
                 {
-                    _logger.LogInformation("Fetching menu: date={Date} deliveryId={DeliveryId} apiCategory={ApiCategory} uniqueId={UniqueId}",
-                        day.Date, day.DeliveryId, mealSlot.ApiCategory, uniqueIdForFetch);
-                    menu = await ApiCallHelper.CallApiSafeAsync(() =>
-                        _delicutApi.FetchMenuAsync(user.DelicutToken!, day.DeliveryId, mealSlot.ApiCategory, uniqueIdForFetch));
-                    state.FlowData[cacheKey] = menu;
+                    // Try DB cache first, then API
+                    menu = await GetOrFetchMenuAsync(user, day, mealSlot, uniqueIdForFetch, category);
+                    state.FlowData[memoryCacheKey] = menu;
                 }
                 catch (DelicutAuthExpiredException) { throw; }
                 catch (Exception ex)
@@ -127,4 +131,61 @@ public class MenuFetchService : IMenuFetchService
         };
     }
 
+    private async Task<List<Dish>> GetOrFetchMenuAsync(
+        User user, DeliveryDay day, MealSlot mealSlot, string uniqueId, string category)
+    {
+        var now = DateTime.UtcNow;
+
+        // Check DB cache
+        var cached = await _db.MenuCaches
+            .FirstOrDefaultAsync(c =>
+                c.UserId == user.Id
+                && c.DeliveryDate == day.Date
+                && c.MealCategory == category
+                && c.ExpiresAt > now);
+
+        if (cached != null)
+        {
+            _logger.LogInformation("Menu cache HIT: {Date} {Category} ({DishCount} dishes, cached at {CachedAt})",
+                day.Date, category, cached.Dishes.Count, cached.FetchedAt);
+            return cached.Dishes;
+        }
+
+        // Cache miss — fetch from API
+        _logger.LogInformation("Menu cache MISS: fetching from API: date={Date} deliveryId={DeliveryId} apiCategory={ApiCategory} uniqueId={UniqueId}",
+            day.Date, day.DeliveryId, mealSlot.ApiCategory, uniqueId);
+
+        var menu = await ApiCallHelper.CallApiSafeAsync(() =>
+            _delicutApi.FetchMenuAsync(user.DelicutToken!, day.DeliveryId, mealSlot.ApiCategory, uniqueId));
+
+        // Upsert cache
+        var existing = await _db.MenuCaches
+            .FirstOrDefaultAsync(c =>
+                c.UserId == user.Id
+                && c.DeliveryDate == day.Date
+                && c.MealCategory == category);
+
+        if (existing != null)
+        {
+            existing.Dishes = menu;
+            existing.FetchedAt = now;
+            existing.ExpiresAt = now.Add(CacheTtl);
+        }
+        else
+        {
+            _db.MenuCaches.Add(new MenuCache
+            {
+                Id = Guid.NewGuid(),
+                UserId = user.Id,
+                DeliveryDate = day.Date,
+                MealCategory = category,
+                Dishes = menu,
+                FetchedAt = now,
+                ExpiresAt = now.Add(CacheTtl)
+            });
+        }
+
+        await _db.SaveChangesAsync();
+        return menu;
+    }
 }

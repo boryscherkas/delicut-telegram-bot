@@ -35,11 +35,22 @@ public class DishFilterService : IDishFilterService
             //    Prefer the subscription's proteinCategory, but also include other categories
             //    (e.g., "balance") so the AI can pick variants with better macros.
             //    The preferred category's variants come first.
-            var matchingVariants = dish.Variants
+            var validVariants = dish.Variants
                 .Where(v => !string.IsNullOrEmpty(v.Size)
                     && !string.IsNullOrEmpty(v.ProteinCategory)
-                    && (string.IsNullOrEmpty(kcalRange) || v.Size.Equals(kcalRange, StringComparison.OrdinalIgnoreCase))
-                    && v.Kcal > 0) // Skip empty/unavailable variants (0 kcal = not real)
+                    && v.Kcal > 0)
+                .ToList();
+
+            var matchingVariants = !string.IsNullOrEmpty(kcalRange)
+                ? validVariants.Where(v => v.Size.Equals(kcalRange, StringComparison.OrdinalIgnoreCase)).ToList()
+                : validVariants;
+
+            // Fallback: if kcalRange filter removed ALL variants (e.g. breakfast has Size="standard"
+            // but delivery slot says "Large"), include all valid variants instead of dropping the dish
+            if (matchingVariants.Count == 0 && validVariants.Count > 0)
+                matchingVariants = validVariants;
+
+            matchingVariants = matchingVariants
                 .OrderByDescending(v => v.ProteinCategory.Equals(proteinCategory, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 

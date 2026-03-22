@@ -417,7 +417,7 @@ public class MenuSelectionService : IMenuSelectionService
         if (!useAi)
             _logger.LogInformation("Using algorithmic selection for {DayCount} days", dayMenuData.Count);
 
-        FillIncompleteDaysWithFallback(weekResult, dayMenuData, expectedPerDay, weekRequest, macroPriority, useAi, regenerate);
+        FillIncompleteDaysWithFallback(weekResult, dayMenuData, weekRequest, macroPriority, useAi, regenerate);
         return weekResult;
     }
 
@@ -498,38 +498,50 @@ public class MenuSelectionService : IMenuSelectionService
 
     private void FillIncompleteDaysWithFallback(
         AiSelectionResult weekResult, List<DayMenuData> dayMenuData,
-        Dictionary<string, int> expectedPerDay, AiSelectionRequest weekRequest,
+        AiSelectionRequest weekRequest,
         List<string> macroPriority, bool useAi, bool regenerate)
     {
         var fallbackWeekContext = BuildWeekContextFromPicks(weekResult, dayMenuData);
 
-        foreach (var (dayDate, needed) in expectedPerDay)
+        // Iterate per DayMenuData entry (per category per day), NOT per date.
+        // Each entry represents one meal category (e.g., "meal" or "breakfast") for one day.
+        // Grouping by date would use the first entry's pool for ALL categories — wrong.
+        foreach (var dayData in dayMenuData)
         {
-            var currentPicks = weekResult.Picks.Count(p => p.Date == dayDate);
+            if (dayData.Summaries == null || dayData.Summaries.Count == 0) continue;
+
+            var dateKey = dayData.Day.Date.ToString(DateFormat);
+            var category = dayData.MealSlot.Category;
+            var needed = dayData.MealSlot.Count;
+
+            // Count existing picks for this specific (date, category)
+            var currentPicks = weekResult.Picks
+                .Count(p => p.Date == dateKey && p.MealCategory.Equals(category, StringComparison.OrdinalIgnoreCase));
+
             if (currentPicks >= needed) continue;
 
-            var dayData = dayMenuData.FirstOrDefault(d => d.Day.Date.ToString(DateFormat) == dayDate);
-            if (dayData?.Summaries == null) continue;
+            _logger.LogInformation("{Mode} {Date} {Category}: has {Current}/{Needed} picks, filling with fallback",
+                useAi ? "AI incomplete" : "Algorithm", dateKey, category, currentPicks, needed);
 
-            _logger.LogInformation("{Mode} {Date}: has {Current}/{Needed} picks, filling with fallback",
-                useAi ? "AI incomplete" : "Algorithm", dayDate, currentPicks, needed);
+            // Remove only picks for this (date, category), not the whole date
+            weekResult.Picks.RemoveAll(p => p.Date == dateKey
+                && p.MealCategory.Equals(category, StringComparison.OrdinalIgnoreCase));
 
-            weekResult.Picks.RemoveAll(p => p.Date == dayDate);
             var fallbackResult = _fallbackService.Select(dayData.Summaries, weekRequest.Strategy,
-                [new MealSlot { Category = dayData.MealSlot.Category, ApiCategory = dayData.MealSlot.ApiCategory, Count = needed }],
+                [new MealSlot { Category = category, ApiCategory = dayData.MealSlot.ApiCategory, Count = needed }],
                 fallbackWeekContext, weekRequest.ProteinGoalGrams, weekRequest.CarbGoalGrams, weekRequest.FatGoalGrams,
                 macroPriority, weekRequest.FavouriteDishNames, weekRequest.MinFavouritesPerWeek,
                 randomness: regenerate ? 0.15 : 0.0);
 
-            var dayDishNames = new List<string>();
+            var dayDishNames = fallbackWeekContext.GetValueOrDefault(dateKey) ?? [];
             foreach (var pick in fallbackResult.Picks)
             {
-                pick.Date = dayDate;
+                pick.Date = dateKey;
                 var dishName = dayData.Summaries.FirstOrDefault(s => s.Id == pick.DishId)?.Name ?? pick.DishId;
                 dayDishNames.Add(dishName);
             }
             weekResult.Picks.AddRange(fallbackResult.Picks);
-            fallbackWeekContext[dayDate] = dayDishNames;
+            fallbackWeekContext[dateKey] = dayDishNames;
         }
     }
 
@@ -543,8 +555,13 @@ public class MenuSelectionService : IMenuSelectionService
             if (!context.ContainsKey(pick.Date))
                 context[pick.Date] = [];
 
-            var pickDayData = dayMenuData.FirstOrDefault(d => d.Day.Date.ToString(DateFormat) == pick.Date);
-            var dishName = pickDayData?.Filtered?.FirstOrDefault(d => d.Id == pick.DishId)?.DishName ?? pick.DishId;
+            // Search across ALL DayMenuData entries for this date (meal + breakfast)
+            var dishName = pick.DishId;
+            foreach (var dmd in dayMenuData.Where(d => d.Day.Date.ToString(DateFormat) == pick.Date))
+            {
+                var found = dmd.Filtered?.FirstOrDefault(d => d.Id == pick.DishId)?.DishName;
+                if (found != null) { dishName = found; break; }
+            }
             context[pick.Date].Add(dishName);
         }
 
@@ -570,7 +587,12 @@ public class MenuSelectionService : IMenuSelectionService
                     .FirstOrDefault(p => p.DishId == dishId && p.Date == date);
                 if (pickToReplace == null) continue;
 
-                var dayData = dayMenuData.FirstOrDefault(d => d.Day.Date.ToString(DateFormat) == date);
+                // Find the DayMenuData matching this pick's (date, category)
+                var dayData = dayMenuData.FirstOrDefault(d =>
+                    d.Day.Date.ToString(DateFormat) == date
+                    && d.MealSlot.Category.Equals(pickToReplace.MealCategory, StringComparison.OrdinalIgnoreCase));
+                // Fallback: any entry for this date
+                dayData ??= dayMenuData.FirstOrDefault(d => d.Day.Date.ToString(DateFormat) == date);
                 if (dayData?.Summaries == null) continue;
 
                 var dayDishIds = weekResult.Picks.Where(p => p.Date == date).Select(p => p.DishId).ToHashSet();
@@ -606,8 +628,10 @@ public class MenuSelectionService : IMenuSelectionService
             var category = dayData.MealSlot.Category;
             var dateKey = day.Date.ToString(DateFormat);
 
+            // Filter picks by BOTH date AND category — each DayMenuData handles only its own category
             var dayPicks = weekResult.Picks
-                .Where(p => p.Date == dateKey)
+                .Where(p => p.Date == dateKey
+                    && p.MealCategory.Equals(category, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             if (dayPicks.Count == 0)
@@ -620,7 +644,10 @@ public class MenuSelectionService : IMenuSelectionService
                 userId, user, subscription, dayData, dayPicks);
 
             await _db.SaveChangesAsync();
-            weekContext[dateKey] = dayDishes.Select(d => d.DishName).ToList();
+            // Accumulate (not overwrite) week context — same date has multiple categories
+            var existing = weekContext.GetValueOrDefault(dateKey) ?? [];
+            existing.AddRange(dayDishes.Select(d => d.DishName));
+            weekContext[dateKey] = existing;
 
             dayProposals.Add(new DayProposal
             {

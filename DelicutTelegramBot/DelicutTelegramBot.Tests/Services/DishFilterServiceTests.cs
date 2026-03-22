@@ -298,12 +298,13 @@ public class DishFilterServiceTests
     [Fact]
     public void Dish_WithNoMatchingVariantsAfterFiltering_IsRemovedEntirely()
     {
+        // A dish is removed only when ALL variants are truly invalid (0 kcal or empty size/proteinCategory)
         var dishes = new List<Dish>
         {
             MakeDish("Meal", variants:
             [
-                MakeVariant("small", "chicken"),
-                MakeVariant("medium", "chicken")
+                new DishVariant { Size = "small", ProteinCategory = "chicken", Kcal = 0, ProteinOption = "chicken" },
+                new DishVariant { Size = "", ProteinCategory = "chicken", Kcal = 500, ProteinOption = "chicken" }
             ])
         };
 
@@ -357,5 +358,51 @@ public class DishFilterServiceTests
 
         Assert.Single(result);
         Assert.Equal("Pasta", result[0].DishName);
+    }
+
+    // ── kcalRange mismatch fallback ─────────────────────────────────────────
+
+    [Fact]
+    public void Variant_KcalRangeMismatch_FallsBackToAllValidVariants()
+    {
+        // Breakfast scenario: delivery slot says kcalRange="Large" but variants only have "standard"
+        var dishes = new List<Dish>
+        {
+            MakeDish("Omelette", variants: [MakeVariant("standard", "chicken")])
+        };
+
+        var result = _sut.Filter(dishes,
+            stopWords: [], avoidIngredients: [], avoidCategories: [],
+            kcalRange: "Large",
+            proteinCategory: "chicken");
+
+        // Should NOT be filtered out — fallback keeps the "standard" variant
+        Assert.Single(result);
+        Assert.Equal("Omelette", result[0].DishName);
+        Assert.Single(result[0].Variants);
+        Assert.Equal("standard", result[0].Variants[0].Size);
+    }
+
+    [Fact]
+    public void Variant_KcalRangeMatches_StillFiltersCorrectly()
+    {
+        // When kcalRange matches, only matching variants are kept (no fallback)
+        var dishes = new List<Dish>
+        {
+            MakeDish("Chicken", variants:
+            [
+                MakeVariant("Large", "chicken"),
+                MakeVariant("standard", "chicken")
+            ])
+        };
+
+        var result = _sut.Filter(dishes,
+            stopWords: [], avoidIngredients: [], avoidCategories: [],
+            kcalRange: "Large",
+            proteinCategory: "chicken");
+
+        Assert.Single(result);
+        Assert.Single(result[0].Variants);
+        Assert.Equal("Large", result[0].Variants[0].Size);
     }
 }
