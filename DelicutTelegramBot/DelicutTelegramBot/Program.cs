@@ -56,7 +56,7 @@ bot.StartReceiving(
     },
     errorHandler: (client, ex, ct) =>
     {
-        Console.Error.WriteLine($"Telegram error: {ex.Message}");
+        Console.Error.WriteLine($"Telegram error: {ex}");
         return Task.CompletedTask;
     },
     receiverOptions: receiverOptions,
