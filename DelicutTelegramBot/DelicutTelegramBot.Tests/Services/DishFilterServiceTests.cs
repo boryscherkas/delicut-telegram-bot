@@ -273,7 +273,7 @@ public class DishFilterServiceTests
     }
 
     [Fact]
-    public void Variant_NonMatchingProteinCategory_IsRemoved()
+    public void Variant_PreferredProteinCategory_ComesFirst()
     {
         var dishes = new List<Dish>
         {
@@ -287,8 +287,10 @@ public class DishFilterServiceTests
         var result = _sut.Filter(dishes, [], [], [], "extra_large", "chicken");
 
         Assert.Single(result);
-        Assert.Single(result[0].Variants);
+        // Both variants kept (same size), but preferred category comes first
+        Assert.Equal(2, result[0].Variants.Count);
         Assert.Equal("chicken", result[0].Variants[0].ProteinCategory);
+        Assert.Equal("veg", result[0].Variants[1].ProteinCategory);
     }
 
     [Fact]

@@ -31,11 +31,13 @@ public class DishFilterService : IDishFilterService
                     dish.DishType.Any(dt => dt.Equals(ac, StringComparison.OrdinalIgnoreCase))))
                 continue;
 
-            // 4. Variant filtering: keep only variants matching kcalRange AND proteinCategory
+            // 4. Variant filtering: keep variants matching kcalRange.
+            //    Prefer the subscription's proteinCategory, but also include other categories
+            //    (e.g., "balance") so the AI can pick variants with better macros.
+            //    The preferred category's variants come first.
             var matchingVariants = dish.Variants
-                .Where(v =>
-                    v.Size.Equals(kcalRange, StringComparison.OrdinalIgnoreCase) &&
-                    v.ProteinCategory.Equals(proteinCategory, StringComparison.OrdinalIgnoreCase))
+                .Where(v => v.Size.Equals(kcalRange, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(v => v.ProteinCategory.Equals(proteinCategory, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             // 5. Remove dishes with no remaining variants
