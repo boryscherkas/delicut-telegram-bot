@@ -108,56 +108,28 @@ public class ChangeDishHandler
         state.FlowData["alt_cat"] = mealCategory;
         state.FlowData["alt_slot"] = slotIndex;
 
-        var lines = BuildAlternativesMessage(currentDish, alternatives, day, proposal);
-
-        var buttons = alternatives.Select((a, i) =>
-            new[] { InlineKeyboardButton.WithCallbackData(
-                $"{a.DishName} ({a.ProteinOption})",
-                $"change:pick:{i}") })
-            .ToList();
-        buttons.Add([InlineKeyboardButton.WithCallbackData("Keep Current", $"change:day:{date:yyyy-MM-dd}")]);
-
-        await _bot.SendMessage(chatId, string.Join("\n", lines),
-            replyMarkup: new InlineKeyboardMarkup(buttons), cancellationToken: ct);
-    }
-
-    private static List<string> BuildAlternativesMessage(
-        ProposedDish? currentDish, List<DishAlternative> alternatives,
-        DayProposal? day, WeeklyProposal proposal)
-    {
-        var curDayKcal = day?.TotalKcal ?? 0;
-        var curDayP = day?.TotalProtein ?? 0;
-        var curDayC = day?.TotalCarb ?? 0;
-        var curDayF = day?.TotalFat ?? 0;
-        var curWeekKcal = proposal.Days.Sum(d => d.TotalKcal);
-        var curWeekP = proposal.Days.Sum(d => d.TotalProtein);
-
         var lines = new List<string>();
         if (currentDish != null)
         {
             lines.Add($"Current: {currentDish.DishName} ({currentDish.ProteinOption})");
             lines.Add($"  {currentDish.Kcal:F0} kcal | P:{currentDish.Protein:F0} C:{currentDish.Carb:F0} F:{currentDish.Fat:F0}");
         }
-        lines.Add($"\nDay now: {curDayKcal:F0} kcal | P:{curDayP:F0} C:{curDayC:F0} F:{curDayF:F0}");
-        lines.Add($"Week now: {curWeekKcal:F0} kcal | P:{curWeekP:F0}");
-        lines.Add("\nIf you pick:");
+        lines.Add("\nPick a replacement:");
 
-        foreach (var a in alternatives)
-        {
-            var kcalDiff = a.Kcal - (currentDish?.Kcal ?? 0);
-            var protDiff = a.Protein - (currentDish?.Protein ?? 0);
-            var newDayKcal = curDayKcal + kcalDiff;
-            var newDayP = curDayP + protDiff;
-            var newWeekKcal = curWeekKcal + kcalDiff;
-            var newWeekP = curWeekP + protDiff;
-            lines.Add($"\n  {a.DishName} ({a.ProteinOption})");
-            lines.Add($"  {a.Kcal:F0} kcal | P:{a.Protein:F0} C:{a.Carb:F0} F:{a.Fat:F0}");
-            lines.Add($"  Day: {newDayKcal:F0} kcal P:{newDayP:F0} ({TelegramFormatHelper.FormatDiff(kcalDiff)} kcal {TelegramFormatHelper.FormatDiff(protDiff)}P)");
-            lines.Add($"  Week: {newWeekKcal:F0} kcal P:{newWeekP:F0}");
-        }
+        var buttons = alternatives.Select((a, i) =>
+            new[] { InlineKeyboardButton.WithCallbackData(
+                TruncateButton($"{a.DishName} P:{a.Protein:F0} C:{a.Carb:F0} F:{a.Fat:F0}"),
+                $"change:pick:{i}") })
+            .ToList();
+        buttons.Add([InlineKeyboardButton.WithCallbackData("Keep Current", $"change:day:{date:yyyy-MM-dd}")]);
 
-        return lines;
+        await KeyboardBuilder.SendOrSplitMessageAsync(_bot, chatId, string.Join("\n", lines),
+            new InlineKeyboardMarkup(buttons), ct);
     }
+
+    /// <summary>Telegram button text is limited; truncate to fit.</summary>
+    private static string TruncateButton(string text, int maxLen = 45)
+        => text.Length <= maxLen ? text : text[..(maxLen - 1)] + "…";
 
     private async Task HandlePickReplacementAsync(
         long chatId, string data, ConversationState state,

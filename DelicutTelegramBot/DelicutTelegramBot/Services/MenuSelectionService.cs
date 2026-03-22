@@ -148,7 +148,6 @@ public class MenuSelectionService : IMenuSelectionService
         return DishSummaryHelper.FlattenToDishSummaries(available, mealCategory,
                 user.Settings?.PreferredProteinVariant)
             .OrderByDescending(ds => ds.Carb)
-            .Take(5)
             .Select(ds => new DishAlternative
             {
                 DishId = ds.Id,
