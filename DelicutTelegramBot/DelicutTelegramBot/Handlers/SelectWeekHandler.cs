@@ -64,7 +64,19 @@ public class SelectWeekHandler
             }
         });
 
-        await _bot.SendMessage(message.Chat.Id, text, replyMarkup: keyboard, cancellationToken: ct);
+        // Telegram has a 4096 char limit — split if needed
+        if (text.Length <= 4096)
+        {
+            await _bot.SendMessage(message.Chat.Id, text, replyMarkup: keyboard, cancellationToken: ct);
+        }
+        else
+        {
+            // Send overview in chunks, keyboard on last message
+            var chunks = SplitMessage(text, 4096);
+            for (int i = 0; i < chunks.Count - 1; i++)
+                await _bot.SendMessage(message.Chat.Id, chunks[i], cancellationToken: ct);
+            await _bot.SendMessage(message.Chat.Id, chunks[^1], replyMarkup: keyboard, cancellationToken: ct);
+        }
     }
 
     public async Task HandleCallbackAsync(CallbackQuery callback, CancellationToken ct)
@@ -210,4 +222,23 @@ public class SelectWeekHandler
     }
 
     private static string Diff(double val) => val >= 0 ? $"+{val:F0}" : $"{val:F0}";
+
+    private static List<string> SplitMessage(string text, int maxLen)
+    {
+        var chunks = new List<string>();
+        var lines = text.Split('\n');
+        var current = new System.Text.StringBuilder();
+        foreach (var line in lines)
+        {
+            if (current.Length + line.Length + 1 > maxLen && current.Length > 0)
+            {
+                chunks.Add(current.ToString());
+                current.Clear();
+            }
+            if (current.Length > 0) current.AppendLine();
+            current.Append(line);
+        }
+        if (current.Length > 0) chunks.Add(current.ToString());
+        return chunks;
+    }
 }

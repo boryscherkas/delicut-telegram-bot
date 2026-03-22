@@ -147,7 +147,16 @@ public class MenuSelectionService : IMenuSelectionService
         var allDayDishNames = new Dictionary<string, List<string>>();
         var macroPriority = (user.Settings?.MacroPriority ?? "p,c,f").Split(',').Select(s => s.Trim()).ToList();
 
-        // Fire all AI requests in parallel
+        // Log max possible carbs per day so we can verify if goals are achievable
+        foreach (var d in dayMenuData)
+        {
+            var topCarbs = d.Summaries.OrderByDescending(s => s.Carb).Take(d.MealSlot.Count).Sum(s => s.Carb);
+            var topProtein = d.Summaries.OrderByDescending(s => s.Protein).Take(d.MealSlot.Count).Sum(s => s.Protein);
+            _logger.LogInformation("Max possible for {Date}: C:{MaxCarb:F0}g P:{MaxProtein:F0}g (from top {Count} dishes)",
+                d.Day.Date, topCarbs, topProtein, d.MealSlot.Count);
+        }
+
+        // Fire all AI requests in parallel — each gets ONLY its day's dishes (not full week)
         var aiTasks = dayMenuData.Select(async d =>
         {
             var request = new AiSelectionRequest
@@ -156,13 +165,6 @@ public class MenuSelectionService : IMenuSelectionService
                 Date = d.Day.Date,
                 MealSlots = [new MealSlot { Category = d.MealSlot.Category, ApiCategory = d.MealSlot.ApiCategory, Count = d.MealSlot.Count }],
                 AvailableDishes = d.Summaries,
-                WeekMenu = dayMenuData.Select(other => new AiDayMenu
-                {
-                    Date = other.Day.Date.ToString("yyyy-MM-dd"),
-                    DayOfWeek = other.Day.DayOfWeek,
-                    MealsNeeded = other.MealSlot.Count,
-                    AvailableDishes = other.Summaries
-                }).ToList(),
                 StopWords = user.Settings?.StopWords ?? [],
                 PreviousChoices = previousChoices,
                 PreferHistory = user.Settings?.PreferHistory ?? false,
