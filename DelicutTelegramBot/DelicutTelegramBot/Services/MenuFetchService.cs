@@ -60,10 +60,14 @@ public class MenuFetchService : IMenuFetchService
                     .FirstOrDefault(mt => mt.MealType.Equals(apiCategory, StringComparison.OrdinalIgnoreCase))
                     ?? subscription.MealTypes.FirstOrDefault(mt => mt.MealCategory.Equals(mealSlot.Category, StringComparison.OrdinalIgnoreCase));
 
-                _logger.LogInformation("MealType for {Date} {Category}: KcalRange={KcalRange}, ProteinCategory={ProteinCategory}",
-                    day.Date, category, mealTypeInfo?.KcalRange, mealTypeInfo?.ProteinCategory);
-
                 var firstSlot = slotsByType.GetValueOrDefault(apiCategory)?.FirstOrDefault();
+
+                // Use kcalRange from delivery slot if available (more accurate than subscription for breakfast)
+                var kcalRange = firstSlot?.KcalRange ?? mealTypeInfo?.KcalRange ?? string.Empty;
+                var proteinCategory = firstSlot?.ProteinCategory ?? mealTypeInfo?.ProteinCategory ?? string.Empty;
+
+                _logger.LogInformation("MealType for {Date} {ApiCategory}: kcalRange={KcalRange} (slot={SlotKcal}, sub={SubKcal}), proteinCategory={ProteinCategory}",
+                    day.Date, apiCategory, kcalRange, firstSlot?.KcalRange, mealTypeInfo?.KcalRange, proteinCategory);
                 var uniqueIdForFetch = firstSlot?.UniqueId ?? string.Empty;
 
                 if (string.IsNullOrEmpty(uniqueIdForFetch))
@@ -91,7 +95,7 @@ public class MenuFetchService : IMenuFetchService
 
                 var filtered = _dishFilterService.Filter(menu,
                     user.Settings?.StopWords ?? [], subscription.AvoidIngredients, subscription.AvoidCategory,
-                    mealTypeInfo?.KcalRange ?? string.Empty, mealTypeInfo?.ProteinCategory ?? string.Empty);
+                    kcalRange, proteinCategory);
 
                 var dishSummaries = DishSummaryHelper.FlattenToDishSummaries(filtered, category, user.Settings?.PreferredProteinVariant);
                 _logger.LogInformation("Fetched {Count} dishes for {Date} {Category} (filtered: {Filtered}, summaries: {Summaries})",
