@@ -61,6 +61,8 @@ public class MenuFetchService : IMenuFetchService
                 var cacheKey = $"menu:{day.Date}:{category}";
                 try
                 {
+                    _logger.LogInformation("Fetching menu: date={Date} deliveryId={DeliveryId} apiCategory={ApiCategory} uniqueId={UniqueId}",
+                        day.Date, day.DeliveryId, mealSlot.ApiCategory, uniqueIdForFetch);
                     menu = await ApiCallHelper.CallApiSafeAsync(() =>
                         _delicutApi.FetchMenuAsync(user.DelicutToken!, day.DeliveryId, mealSlot.ApiCategory, uniqueIdForFetch));
                     state.FlowData[cacheKey] = menu;
