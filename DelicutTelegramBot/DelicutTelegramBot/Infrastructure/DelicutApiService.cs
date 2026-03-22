@@ -266,6 +266,21 @@ public class DelicutApiService : IDelicutApiService
             // Guard: required fields must not be empty
             var proteinCat = dish.ProteinCategory;
             var size = dish.Size;
+            var mealType = dish.MealType;
+
+            // Fallback: if MealType is empty (old rows before migration), derive from MealCategory
+            if (string.IsNullOrEmpty(mealType))
+            {
+                mealType = dish.MealCategory.ToLower() switch
+                {
+                    "meal" => "lunch",
+                    "breakfast" => "breakfast",
+                    "snack" => "evening_snack",
+                    _ => dish.MealCategory.ToLower()
+                };
+                _logger.LogWarning("Empty MealType for dish {DishId}, derived '{MealType}' from MealCategory '{MealCategory}'",
+                    dish.DishId, mealType, dish.MealCategory);
+            }
 
             if (string.IsNullOrEmpty(proteinCat) || string.IsNullOrEmpty(size))
             {
@@ -276,7 +291,7 @@ public class DelicutApiService : IDelicutApiService
 
             var payload = new
             {
-                type = dish.MealType,  // "lunch", "breakfast", etc — NOT "meal"
+                type = mealType,
                 customer_id = customerId,
                 delivery_id = deliveryId,
                 recipe_id = dish.DishId,
