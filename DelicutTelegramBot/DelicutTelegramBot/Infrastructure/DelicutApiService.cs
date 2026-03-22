@@ -267,8 +267,8 @@ public class DelicutApiService : IDelicutApiService
             var size = dish.Size;
             if (string.IsNullOrEmpty(size))
             {
-                size = "extra_large";
-                _logger.LogWarning("Empty size for dish {DishId}, defaulting to 'extra_large'", dish.DishId);
+                size = "extra_large"; // Last-resort default — should be set from subscription at creation
+                _logger.LogError("Empty size for dish {DishId} — this should have been set from subscription. Defaulting to 'extra_large'", dish.DishId);
             }
 
             var payload = new

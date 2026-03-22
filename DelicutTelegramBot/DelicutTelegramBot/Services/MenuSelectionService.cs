@@ -399,8 +399,10 @@ public class MenuSelectionService : IMenuSelectionService
                     DishId = pick.DishId,
                     DishName = dish.DishName,
                     VariantProtein = variant.ProteinOption,
-                    VariantSize = variant.Size,
-                    VariantProteinCategory = variant.ProteinCategory,
+                    VariantSize = !string.IsNullOrEmpty(variant.Size) ? variant.Size
+                        : subscription.MealTypes.FirstOrDefault()?.KcalRange?.ToLower() ?? "extra_large",
+                    VariantProteinCategory = !string.IsNullOrEmpty(variant.ProteinCategory) ? variant.ProteinCategory
+                        : subscription.MealTypes.FirstOrDefault()?.ProteinCategory ?? "balance",
                     Kcal = variant.Kcal,
                     Protein = variant.Protein,
                     Carb = variant.Carb,
