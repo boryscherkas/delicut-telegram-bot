@@ -80,18 +80,29 @@ public class MenuSelectionService : IMenuSelectionService
         _logger.LogInformation("Resolved mealSlots: [{Slots}]",
             string.Join(", ", mealSlots.Select(s => $"{s.ApiCategory}({s.Category})x{s.Count}")));
 
+        // Find days the user already submitted via our bot (skip algorithm for those unless regenerating)
+        var userSubmittedDates = regenerate
+            ? new HashSet<DateOnly>()
+            : (await _db.SelectionHistories
+                .Where(h => h.UserId == userId && h.WasUserChoice)
+                .Select(h => h.SelectedDate)
+                .Distinct()
+                .ToListAsync())
+              .ToHashSet();
+
+        if (userSubmittedDates.Count > 0)
+            _logger.LogInformation("User-submitted days (keeping current): [{Dates}]",
+                string.Join(", ", userSubmittedDates.OrderBy(d => d)));
+
         // Phase 1: Fetch and filter menus (needed for dish change cache)
         var weekMenuData = await _menuFetchService.FetchAndFilterMenusAsync(user, subscription, schedule, mealSlots);
-
-        if (!regenerate)
-        {
-            // Show current Delicut selection — no algorithm, just read what's on the schedule
-            _logger.LogInformation("Showing current Delicut selection for {DayCount} days", schedule.Days.Count);
-            return await BuildCurrentSelectionProposalAsync(userId, user, schedule, weekMenuData.LockedDays);
-        }
-
-        // Regenerate: run algorithmic selection
         var dayMenuData = weekMenuData.Days;
+
+        // Phase 2: Run algorithm for non-user-submitted days
+        var daysToGenerate = dayMenuData
+            .Where(d => !userSubmittedDates.Contains(d.Day.Date))
+            .ToList();
+
         var previousChoices = user.Settings?.PreferHistory == true
             ? await _historyService.GetPreviousChoiceNamesAsync(userId)
             : [];
@@ -99,15 +110,33 @@ public class MenuSelectionService : IMenuSelectionService
         LogSelectionSettings(userId, user);
 
         var macroPriority = (user.Settings?.MacroPriority ?? "p,c,f").Split(',').Select(s => s.Trim()).ToList();
-        var weekRequest = BuildWeekRequest(user, dayMenuData, mealSlots, previousChoices, macroPriority);
-        var expectedPerDay = dayMenuData
+        var weekRequest = BuildWeekRequest(user, daysToGenerate, mealSlots, previousChoices, macroPriority);
+        var expectedPerDay = daysToGenerate
             .GroupBy(d => d.Day.Date.ToString(DateFormat))
             .ToDictionary(g => g.Key, g => g.Sum(d => d.MealSlot.Count));
 
-        var weekResult = await SelectDishesAsync(user, weekRequest, dayMenuData, expectedPerDay, macroPriority, regenerate);
-        FixOverRepeatedDishes(weekResult, dayMenuData);
+        var weekResult = expectedPerDay.Count > 0
+            ? await SelectDishesAsync(user, weekRequest, daysToGenerate, expectedPerDay, macroPriority, regenerate)
+            : new AiSelectionResult { Picks = [] };
+        FixOverRepeatedDishes(weekResult, daysToGenerate);
 
-        return await ResolvePicksToProposalAsync(userId, user, subscription, weekRequest, weekResult, dayMenuData, macroPriority, regenerate, weekMenuData.LockedDays);
+        // Phase 3: Resolve algorithm picks for generated days
+        var generatedProposal = await ResolvePicksToProposalAsync(
+            userId, user, subscription, weekRequest, weekResult, daysToGenerate, macroPriority, regenerate, weekMenuData.LockedDays);
+
+        // Phase 4: Build current-selection proposals for user-submitted days
+        var submittedDays = schedule.Days
+            .Where(d => !d.IsLocked && userSubmittedDates.Contains(d.Date))
+            .ToList();
+
+        if (submittedDays.Count > 0)
+        {
+            var currentProposal = await BuildCurrentSelectionProposalAsync(userId, user, schedule, [], submittedDays);
+            generatedProposal.Days.AddRange(currentProposal.Days);
+            generatedProposal.Days = generatedProposal.Days.OrderBy(d => d.Date).ToList();
+        }
+
+        return generatedProposal;
     }
 
     public async Task<List<DishAlternative>> GetAlternativesAsync(Guid userId, DateOnly date, string mealCategory, int slotIndex)
@@ -375,13 +404,14 @@ public class MenuSelectionService : IMenuSelectionService
     }
 
     private async Task<WeeklyProposal> BuildCurrentSelectionProposalAsync(
-        Guid userId, User user, WeekDeliverySchedule schedule, List<DateOnly> lockedDays)
+        Guid userId, User user, WeekDeliverySchedule schedule, List<DateOnly> lockedDays,
+        List<DeliveryDay>? specificDays = null)
     {
+        var daysToProcess = specificDays ?? schedule.Days.Where(d => !d.IsLocked).ToList();
         var dayProposals = new List<DayProposal>();
 
-        foreach (var day in schedule.Days)
+        foreach (var day in daysToProcess)
         {
-            if (day.IsLocked) continue;
 
             var slots = day.Slots
                 .OrderBy(s => s.MealType.ToLower() switch { "breakfast" => 0, "dinner" => 2, _ => 1 })
