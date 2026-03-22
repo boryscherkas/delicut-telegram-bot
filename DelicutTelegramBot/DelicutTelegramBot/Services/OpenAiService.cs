@@ -23,10 +23,45 @@ public class OpenAiService : IOpenAiService
         try
         {
             var systemPrompt = BuildSystemPrompt(request);
-            var userMessage = JsonSerializer.Serialize(request, new JsonSerializerOptions
+
+            // Build a compact user message — only essential fields, sorted for clarity
+            var compactRequest = new
+            {
+                macro_goals = new
+                {
+                    protein_g = request.ProteinGoalGrams,
+                    carb_g = request.CarbGoalGrams,
+                    fat_g = request.FatGoalGrams,
+                    priority = request.MacroPriority
+                },
+                preferred_protein = request.PreferredProteinVariant,
+                favourites = request.FavouriteDishNames.Count > 0 ? new { dishes = request.FavouriteDishNames, min_per_week = request.MinFavouritesPerWeek } : null,
+                previous_choices = request.PreviousChoices.Count > 0 ? request.PreviousChoices : null,
+                week = request.WeekMenu?.Select(day => new
+                {
+                    date = day.Date,
+                    day = day.DayOfWeek,
+                    meals_needed = day.MealsNeeded,
+                    dishes = day.AvailableDishes
+                        .OrderByDescending(d => d.Carb) // Sort by carb desc so AI sees high-carb options first
+                        .Select(d => new
+                        {
+                            id = d.Id,
+                            name = d.Name,
+                            protein_opt = d.ProteinOption,
+                            kcal = (int)d.Kcal,
+                            p = (int)d.Protein,
+                            c = (int)d.Carb,
+                            f = (int)d.Fat,
+                            cuisine = d.Cuisine
+                        })
+                })
+            };
+            var userMessage = JsonSerializer.Serialize(compactRequest, new JsonSerializerOptions
             {
                 PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-                WriteIndented = false
+                WriteIndented = false,
+                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
             });
 
             var chatOptions = new ChatCompletionOptions
@@ -75,6 +110,9 @@ public class OpenAiService : IOpenAiService
                 PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
             });
 
+            _logger.LogInformation("OpenAI response: {PickCount} picks, usage: {Tokens} tokens",
+                result?.Picks.Count ?? 0,
+                response.Value.Usage?.TotalTokenCount ?? 0);
             return result;
         }
         catch (Exception ex)
@@ -128,22 +166,17 @@ public class OpenAiService : IOpenAiService
 
             macroGoals = $"""
 
-            DAILY MACRO GOALS — these are MINIMUMS for the WHOLE DAY (sum of all meals):
+            DAILY MACRO GOALS — MINIMUMS for the WHOLE DAY (sum of all meals):
             {string.Join("\n", goals)}
 
-            IMPORTANT:
-            - Goals are daily totals — each meal contributes a portion. With 3 meals, aim for ~1/3 of the goal per meal.
-            - Meeting or EXCEEDING a goal is good — never penalize going over.
-            - When choosing between dishes, pick the one with HIGHER value for the prioritized macro.
-              Example: if {first} is the priority and dish A has 80g {first} vs dish B has 50g {first},
-              pick dish A even if dish B is slightly better on lower-priority macros.
-
-            BALANCED PRIORITY LOGIC:
-            - Priority: {first} > {second} > remaining.
-            - If all meals combined already nearly meet a higher-priority goal (within ~5%),
-              shift focus to whichever macro has the biggest gap vs its daily target.
-            - Goal: get ALL macros as close to their daily minimums as possible,
-              with priority as tiebreaker when macros are similarly deficient.
+            HOW TO SELECT:
+            1. For each day, look at the "c" (carbs), "p" (protein), "f" (fat) values of each dish.
+            2. Add up the macros of your selected dishes. The total MUST try to reach each goal.
+            3. Dishes are sorted by carb content (highest first) in the input — look at the top dishes for carb-heavy options.
+            4. Priority order: {first} > {second} > remaining.
+               But if {first} goal is nearly met and {second} is far behind, prioritize {second}.
+            5. Meeting or exceeding a goal is good — never penalize going over.
+            6. ALWAYS verify: add up the "c" values of your 3 picks. Is the sum >= {request.CarbGoalGrams ?? 0}? If not, swap the lowest-carb pick for a higher-carb alternative.
             """;
         }
 
