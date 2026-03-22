@@ -274,6 +274,47 @@ public class MenuSelectionService : IMenuSelectionService
             weekResult.Picks.AddRange(fallbackResult.Picks);
         }
 
+        // ── Post-process: fix over-repeated dishes (>2 days) ──
+        var overRepeated = weekResult.Picks
+            .GroupBy(p => p.DishId)
+            .Where(g => g.Select(p => p.Date).Distinct().Count() > 2)
+            .ToList();
+
+        foreach (var group in overRepeated)
+        {
+            var dishId = group.Key;
+            var dates = group.Select(p => p.Date).Distinct().OrderBy(d => d).ToList();
+            // Keep the dish on the first 2 days, replace on the rest
+            var datesToReplace = dates.Skip(2).ToList();
+
+            foreach (var date in datesToReplace)
+            {
+                var pickToReplace = weekResult.Picks
+                    .FirstOrDefault(p => p.DishId == dishId && p.Date == date);
+                if (pickToReplace == null) continue;
+
+                var dayData = dayMenuData.FirstOrDefault(d => d.Day.Date.ToString("yyyy-MM-dd") == date);
+                if (dayData.Summaries == null) continue;
+
+                // Find the best alternative that isn't already on this day
+                var dayDishIds = weekResult.Picks.Where(p => p.Date == date).Select(p => p.DishId).ToHashSet();
+                var alternative = dayData.Summaries
+                    .Where(s => !dayDishIds.Contains(s.Id) && s.Id != dishId)
+                    .OrderByDescending(s => s.Carb)
+                    .FirstOrDefault();
+
+                if (alternative != null)
+                {
+                    _logger.LogInformation("Variety fix: replacing {OldDish} on {Date} with {NewDish}",
+                        dishId, date, alternative.Id);
+                    pickToReplace.DishId = alternative.Id;
+                    pickToReplace.ProteinOption = alternative.ProteinOption;
+                    pickToReplace.MealCategory = alternative.MealCategory;
+                    pickToReplace.Reasoning = "Replaced for variety (dish was on >2 days)";
+                }
+            }
+        }
+
         // ── Phase 3: Resolve AI picks into PendingSelections ──
         var weekContext = new Dictionary<string, List<string>>();
 
