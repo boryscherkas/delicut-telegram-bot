@@ -177,28 +177,16 @@ public class SelectWeekHandler
                 lines.Add($"  {emoji} {dish.SlotIndex + 1}. {dish.DishName} ({dish.ProteinOption}) \u2014 {dish.Kcal:F0} kcal | P:{dish.Protein:F0} C:{dish.Carb:F0} F:{dish.Fat:F0}");
             }
 
-            // Show original (auto-selected) vs proposed comparison
-            if (day.OriginalKcal > 0)
-            {
-                lines.Add($"  Was:  {day.OriginalKcal:F0} kcal | P:{day.OriginalProtein:F0} C:{day.OriginalCarb:F0} F:{day.OriginalFat:F0}");
-                lines.Add($"  Now:  {day.TotalKcal:F0} kcal | P:{day.TotalProtein:F0} C:{day.TotalCarb:F0} F:{day.TotalFat:F0}");
-                var kDiff = day.TotalKcal - day.OriginalKcal;
-                var pDayDiff = day.TotalProtein - day.OriginalProtein;
-                var cDayDiff = day.TotalCarb - day.OriginalCarb;
-                var fDayDiff = day.TotalFat - day.OriginalFat;
-                lines.Add($"  Diff: {Diff(kDiff)} kcal | {Diff(pDayDiff)}P {Diff(cDayDiff)}C {Diff(fDayDiff)}F");
-            }
-            else
-            {
-                lines.Add($"  Total: {day.TotalKcal:F0} kcal | P:{day.TotalProtein:F0} C:{day.TotalCarb:F0} F:{day.TotalFat:F0}");
-            }
+            // Compact daily summary
+            var dayTotal = $"  {day.TotalKcal:F0} kcal | P:{day.TotalProtein:F0} C:{day.TotalCarb:F0} F:{day.TotalFat:F0}";
             if (hasGoals)
             {
                 var pDiff = day.TotalProtein - (proteinGoal ?? 0);
                 var cDiff = day.TotalCarb - (carbGoal ?? 0);
                 var fDiff = day.TotalFat - (fatGoal ?? 0);
-                lines.Add($"  vs Goal: {Diff(pDiff)}P {Diff(cDiff)}C {Diff(fDiff)}F");
+                dayTotal += $" (goal: {Diff(pDiff)}P {Diff(cDiff)}C {Diff(fDiff)}F)";
             }
+            lines.Add(dayTotal);
             lines.Add("");
         }
 
