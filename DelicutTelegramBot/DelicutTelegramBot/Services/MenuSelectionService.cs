@@ -227,6 +227,7 @@ public class MenuSelectionService : IMenuSelectionService
         }
 
         pending.DishId = newDishId;
+        pending.MatchesOriginal = false;
         pending.DishName = newDish?.DishName ?? string.Empty;
         pending.VariantProtein = proteinOption;
         pending.VariantSize = newVariant?.Size ?? pending.VariantSize;
