@@ -39,7 +39,7 @@ public class MenuHandler
             lines.Add($"📅 {day.DayOfWeek} ({day.Date:MMM dd}){label}:");
 
             var slots = day.Slots
-                .OrderBy(s => s.MealType.ToLower() switch { "breakfast" => 0, "dinner" => 2, _ => 1 })
+                .OrderBy(s => s.MealType.ToLower() switch { "breakfast" => 0, "evening_snack" => 3, "dinner" => 2, _ => 1 })
                 .ToList();
 
             double dayKcal = 0, dayP = 0, dayC = 0, dayF = 0;
@@ -49,7 +49,7 @@ public class MenuHandler
                 var emoji = s.MealType.ToLower() switch
                 {
                     "breakfast" => "🥣",
-                    "dinner" => "🍽",
+                    "evening_snack" => "🍎",
                     _ => "🍽"
                 };
                 var name = s.CurrentDishName ?? "—";
