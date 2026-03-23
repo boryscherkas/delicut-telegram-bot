@@ -270,8 +270,20 @@ public class MenuSelectionService : IMenuSelectionService
             return;
         }
 
-        _logger.LogInformation("Submitting {Count} dishes for {Date}", daySelections.Count, date);
-        var toSubmit = daySelections;
+        // Only submit dishes that differ from Delicut's current selection
+        var toSubmit = daySelections.Where(s => !s.MatchesOriginal).ToList();
+
+        if (toSubmit.Count == 0)
+        {
+            _logger.LogInformation("Day {Date}: all {Count} dishes already match Delicut — nothing to submit",
+                date, daySelections.Count);
+            _db.PendingSelections.RemoveRange(daySelections);
+            await _db.SaveChangesAsync();
+            return;
+        }
+
+        _logger.LogInformation("Submitting {Changed}/{Total} changed dishes for {Date}",
+            toSubmit.Count, daySelections.Count, date);
 
         foreach (var sel in toSubmit)
         {
