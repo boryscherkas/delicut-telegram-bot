@@ -271,19 +271,35 @@ public class MenuSelectionService : IMenuSelectionService
             return;
         }
 
-        // Only submit dishes that differ from Delicut's current selection
-        var toSubmit = daySelections.Where(s => !s.MatchesOriginal).ToList();
+        // Fetch LIVE delivery schedule to compare against current Delicut state
+        var schedule = await ApiCallHelper.CallApiSafeAsync(() =>
+            _delicutApi.GetDeliveryScheduleAsync(user.DelicutToken!, user.DelicutCustomerId!));
+        var liveDay = schedule.Days.FirstOrDefault(d => d.Date == date);
+        var liveSlots = liveDay?.Slots ?? [];
+
+        // Build lookup: uniqueId → current dish on Delicut right now
+        var liveDishByUniqueId = liveSlots
+            .Where(s => !string.IsNullOrEmpty(s.CurrentDishId))
+            .ToDictionary(s => s.UniqueId, s => s.CurrentDishId!);
+
+        // Only submit dishes that differ from what Delicut currently has
+        var toSubmit = daySelections.Where(sel =>
+        {
+            if (!liveDishByUniqueId.TryGetValue(sel.UniqueId, out var liveDishId))
+                return true; // slot not found in live data — submit to be safe
+            return sel.DishId != liveDishId;
+        }).ToList();
 
         if (toSubmit.Count == 0)
         {
-            _logger.LogInformation("Day {Date}: all {Count} dishes already match Delicut — nothing to submit",
+            _logger.LogInformation("Day {Date}: all {Count} dishes already match Delicut (live check) — nothing to submit",
                 date, daySelections.Count);
             _db.PendingSelections.RemoveRange(daySelections);
             await _db.SaveChangesAsync();
             return;
         }
 
-        _logger.LogInformation("Submitting {Changed}/{Total} changed dishes for {Date}",
+        _logger.LogInformation("Submitting {Changed}/{Total} changed dishes for {Date} (live comparison)",
             toSubmit.Count, daySelections.Count, date);
 
         foreach (var sel in toSubmit)
