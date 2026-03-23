@@ -161,7 +161,7 @@ public class MenuSelectionService : IMenuSelectionService
             .Select(p => p.DishId)
             .ToListAsync();
 
-        var available = menu.Where(d => !otherSelectedDishIds.Contains(d.Id)).ToList();
+        var available = menu.Where(d => !otherSelectedDishIds.Contains(d.RecipeId) && !otherSelectedDishIds.Contains(d.Id)).ToList();
 
         var currentDishId = await _db.PendingSelections
             .Where(p => p.UserId == userId && p.DeliveryDate == date
@@ -170,7 +170,7 @@ public class MenuSelectionService : IMenuSelectionService
             .FirstOrDefaultAsync();
 
         if (currentDishId != null)
-            available = available.Where(d => d.Id != currentDishId).ToList();
+            available = available.Where(d => d.RecipeId != currentDishId && d.Id != currentDishId).ToList();
 
         return DishSummaryHelper.FlattenToDishSummaries(available, mealCategory,
                 user.Settings?.PreferredProteinVariant)
@@ -221,7 +221,7 @@ public class MenuSelectionService : IMenuSelectionService
 
         if (state.FlowData.TryGetValue(cacheKey, out var cached) && cached is List<Dish> menu)
         {
-            newDish = menu.FirstOrDefault(d => d.Id == newDishId);
+            newDish = menu.FirstOrDefault(d => d.RecipeId == newDishId || d.Id == newDishId);
             newVariant = newDish?.Variants.FirstOrDefault(v =>
                 v.ProteinOption.Equals(proteinOption, StringComparison.OrdinalIgnoreCase));
         }
@@ -686,7 +686,7 @@ public class MenuSelectionService : IMenuSelectionService
             var dishName = pick.DishId;
             foreach (var dmd in dayMenuData.Where(d => d.Day.Date.ToString(DateFormat) == pick.Date))
             {
-                var found = dmd.Filtered?.FirstOrDefault(d => d.Id == pick.DishId)?.DishName;
+                var found = dmd.Filtered?.FirstOrDefault(d => d.RecipeId == pick.DishId || d.Id == pick.DishId)?.DishName;
                 if (found != null) { dishName = found; break; }
             }
             context[pick.Date].Add(dishName);
@@ -856,7 +856,7 @@ public class MenuSelectionService : IMenuSelectionService
 
         foreach (var pick in dayPicks)
         {
-            var dish = filtered.FirstOrDefault(d => d.Id == pick.DishId);
+            var dish = filtered.FirstOrDefault(d => d.RecipeId == pick.DishId || d.Id == pick.DishId);
             if (dish is null)
             {
                 _logger.LogWarning("Dish {DishId} not found for {Date}", pick.DishId, day.Date);

@@ -37,7 +37,7 @@ public static class DishSummaryHelper
             {
                 summaries.Add(new DishSummary
                 {
-                    Id = dish.Id,
+                    Id = !string.IsNullOrEmpty(dish.RecipeId) ? dish.RecipeId : dish.Id,
                     Name = dish.DishName,
                     Cuisine = dish.Cuisine,
                     Kcal = variant.Kcal,
