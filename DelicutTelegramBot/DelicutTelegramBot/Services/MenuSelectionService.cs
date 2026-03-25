@@ -81,6 +81,8 @@ public class MenuSelectionService : IMenuSelectionService
             string.Join(", ", mealSlots.Select(s => $"{s.ApiCategory}({s.Category})x{s.Count}")));
 
         // Find days the user already submitted via our bot (skip algorithm for those unless regenerating)
+        // Only check dates in the current delivery schedule to avoid stale history from past weeks
+        var scheduleDates = schedule.Days.Where(d => !d.IsLocked).Select(d => d.Date).ToList();
         var userSubmittedDates = regenerate
             ? new HashSet<DateOnly>()
             : (await _db.SelectionHistories
@@ -88,6 +90,7 @@ public class MenuSelectionService : IMenuSelectionService
                 .Select(h => h.SelectedDate)
                 .Distinct()
                 .ToListAsync())
+              .Where(d => scheduleDates.Contains(d))
               .ToHashSet();
 
         if (userSubmittedDates.Count > 0)

@@ -3,6 +3,7 @@ using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using DelicutTelegramBot.State;
 using DelicutTelegramBot.Infrastructure;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace DelicutTelegramBot.Handlers;
@@ -28,6 +29,7 @@ public class BotHandler
         MenuHandler menuHandler,
         CancelHandler cancelHandler,
         ConversationStateManager stateManager,
+        IConfiguration configuration,
         ILogger<BotHandler> logger)
     {
         _bot = bot;
@@ -38,13 +40,27 @@ public class BotHandler
         _menuHandler = menuHandler;
         _cancelHandler = cancelHandler;
         _stateManager = stateManager;
+        _configuration = configuration;
         _logger = logger;
     }
+
+    private readonly IConfiguration _configuration;
 
     public async Task HandleUpdateAsync(Update update, CancellationToken ct)
     {
         try
         {
+            // Debug override: route all requests through a specific Delicut account
+            // Set Debug:TargetTelegramUserId in appsettings/user-secrets to enable
+            var debugUserId = _configuration.GetValue<long?>("Debug:TargetTelegramUserId");
+            if (debugUserId.HasValue && debugUserId.Value != 0)
+            {
+                if (update.Message?.From != null)
+                    update.Message.From = new Telegram.Bot.Types.User { Id = debugUserId.Value, FirstName = "DebugProxy" };
+                if (update.CallbackQuery?.From != null)
+                    update.CallbackQuery.From = new Telegram.Bot.Types.User { Id = debugUserId.Value, FirstName = "DebugProxy" };
+            }
+
             if (update.Type == UpdateType.Message && update.Message?.Text is { } text)
             {
                 var chatId = update.Message.Chat.Id;
