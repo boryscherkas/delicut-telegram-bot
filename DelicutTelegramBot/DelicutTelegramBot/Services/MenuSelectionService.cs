@@ -427,7 +427,7 @@ public class MenuSelectionService : IMenuSelectionService
         {
 
             var slots = day.Slots
-                .OrderBy(s => s.MealType.ToLower() switch { "breakfast" => 0, "evening_snack" => 3, "dinner" => 2, _ => 1 })
+                .OrderBy(s => s.MealType.ToLower() switch { "breakfast" => 0, "dinner" => 2, _ when s.MealType.Contains("snack", StringComparison.OrdinalIgnoreCase) => 3, _ => 1 })
                 .ToList();
 
             var dishes = new List<ProposedDish>();
@@ -441,7 +441,7 @@ public class MenuSelectionService : IMenuSelectionService
                 var mealCategory = slot.MealType.ToLower() switch
                 {
                     "breakfast" => "breakfast",
-                    "evening_snack" => "snack",
+                    _ when slot.MealType.Contains("snack", StringComparison.OrdinalIgnoreCase) => "snack",
                     _ => "meal"
                 };
 

@@ -260,6 +260,8 @@ public class SelectWeekHandler
 
         if (proposal.Days.Count > 0)
             FormatWeekSummary(lines, proposal, hasGoals, proteinGoal, carbGoal, fatGoal);
+        else if (lines.Count == 0)
+            lines.Add("No unlocked days available for selection.");
 
         return string.Join("\n", lines);
     }
