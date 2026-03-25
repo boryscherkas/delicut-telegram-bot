@@ -61,21 +61,6 @@ public class MenuSelectionService : IMenuSelectionService
         var schedule = await ApiCallHelper.CallApiSafeAsync(() =>
             _delicutApi.GetDeliveryScheduleAsync(user.DelicutToken!, user.DelicutCustomerId!));
 
-        // Log raw subscription data for debugging
-        _logger.LogInformation("Subscription: NoOfMeals={Meals}, NoOfBreakfast={Breakfast}, NoOfSnacks={Snacks}",
-            subscription.NoOfMeals, subscription.NoOfBreakfast, subscription.NoOfSnacks);
-        foreach (var mt in subscription.MealTypes)
-            _logger.LogInformation("  MealType: category={Category} type={Type} qty={Qty} kcal={Kcal}",
-                mt.MealCategory, mt.MealType, mt.Qty, mt.KcalRange);
-
-        // Log delivery schedule slots for first unlocked day
-        var firstUnlocked = schedule.Days.FirstOrDefault(d => !d.IsLocked);
-        if (firstUnlocked != null)
-        {
-            _logger.LogInformation("Delivery slots for {Date}: [{Slots}]", firstUnlocked.Date,
-                string.Join(", ", firstUnlocked.Slots.Select(s => $"{s.MealType}({s.MealCategory}) uid={s.UniqueId}")));
-        }
-
         // Group by MealType (lunch/breakfast/dinner) — NOT MealCategory (which can be "meal" for everything)
         // Merge lunch+dinner into one slot since they share the same menu
         var mealSlots = subscription.MealTypes
